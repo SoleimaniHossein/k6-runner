@@ -7,9 +7,9 @@ export const options = {
 };
 
 export default function() {
-  const url = 'https://httpbin.org/get';
+  const url = 'http://localhost:5555/';
   const payload = null;
-  const headers = { 'Content-Type': 'application/json' };
+  const headers = {"Content-Type":"application/json"};
   const res = http.get(url, { headers });
 
   check(res, {
