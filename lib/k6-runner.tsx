@@ -4,7 +4,6 @@ import { v4 as uuidv4 } from 'uuid';
 import fs from 'fs/promises';
 import path from 'path';
 import { EventEmitter } from 'events';
-import { K6DashboardClient, DashboardMetrics } from './dashboard-client';
 
 export interface TestConfig {
   request: {
@@ -24,6 +23,7 @@ export interface TestConfig {
   output: string;
   useDashboard?: boolean;
   dashboardPort?: number;
+  restAPIPort?: number;
 }
 
 export interface TestInfo {
@@ -44,25 +44,28 @@ export interface TestInfo {
   error?: string;
   stage?: string;
   currentVUs?: number;
-  currentTime?: string;
-  totalTime?: string;
   dashboardUrl?: string;
-  dashboardClient?: K6DashboardClient;
+  lastUpdate: number;
+  restAPIPort: number;
+  useDashboard: boolean;
+  isCompleted: boolean;
+  elapsedSeconds?: number;
+  remainingSeconds?: number;
+  totalDurationSeconds?: number;
 }
 
 const runningTests = new Map<string, TestInfo>();
 const testEmitters = new Map<string, EventEmitter>();
 
-/**
- * Generate K6 test script
- */
 function generateScript(config: TestConfig): string {
   const { request, options = {}, env = {} } = config;
 
   let script = `import http from 'k6/http';\n`;
-  script += `import { check, sleep } from 'k6';\n\n`;
+  script += `import { check, sleep } from 'k6';\n`;
+  script += `import exec from 'k6/execution';\n\n`;
 
   const cleanOptions: any = { ...options };
+  
   if (cleanOptions.stages) {
     try { cleanOptions.stages = JSON.parse(cleanOptions.stages); } catch { delete cleanOptions.stages; }
   }
@@ -88,6 +91,10 @@ function generateScript(config: TestConfig): string {
   }
 
   script += `export default function() {\n`;
+  script += `  const progress = exec.scenario.progress;\n`;
+  script += `  const percent = Math.round(progress * 100);\n`;
+  script += `  console.log(\`PROGRESS: \${percent}\`);\n\n`;
+
   script += `  const url = '${request.url}';\n`;
 
   if (request.body) {
@@ -127,9 +134,140 @@ function generateScript(config: TestConfig): string {
   return script;
 }
 
-/**
- * Run K6 test with WebSocket Dashboard integration
- */
+function parseDurationToSeconds(duration: string): number {
+  const match = duration.match(/^(\d+)(s|m|h)$/);
+  if (!match) return 30;
+  const value = parseInt(match[1]);
+  const unit = match[2];
+  switch (unit) {
+    case 's': return value;
+    case 'm': return value * 60;
+    case 'h': return value * 3600;
+    default: return value;
+  }
+}
+
+function parseStdoutLine(line: string, info: TestInfo): boolean {
+  let changed = false;
+
+  const progressMatch = line.match(/PROGRESS:\s*(\d+)/);
+  if (progressMatch) {
+    const percent = parseInt(progressMatch[1]);
+    if (percent !== info.progress) {
+      info.progress = percent;
+      changed = true;
+      console.log(`📈 Progress updated: ${percent}%`);
+    }
+  }
+
+  const stageMatch = line.match(/default\s*\[\s*\d+%\s*\]\s*(\d+)\s*VUs\s*([\d.]+s)\/([\d.]+s)/);
+  if (stageMatch) {
+    const vus = parseInt(stageMatch[1]);
+    const current = stageMatch[2];
+    const total = stageMatch[3];
+    if (vus !== info.currentVUs) {
+      info.currentVUs = vus;
+      info.stage = `${vus} VUs - ${current}/${total}`;
+      changed = true;
+    }
+  }
+
+  const dashboardMatch = line.match(/web dashboard:\s*(http:\/\/[^\s]+)/i);
+  if (dashboardMatch) {
+    const url = dashboardMatch[1];
+    if (url !== info.dashboardUrl) {
+      info.dashboardUrl = url;
+      changed = true;
+      console.log(`📍 Dashboard URL: ${url}`);
+    }
+  }
+
+  return changed;
+}
+
+async function fetchMetricsFromRESTAPI(port: number): Promise<any> {
+  try {
+    const response = await fetch(`http://localhost:${port}/v1/metrics`);
+    if (!response.ok) return null;
+    return await response.json();
+  } catch (error) {
+    return null;
+  }
+}
+
+function processMetricsFromRESTAPI(data: any, info: TestInfo): boolean {
+  let changed = false;
+  if (!data?.data || !Array.isArray(data.data)) return changed;
+
+  for (const metric of data.data) {
+    if (metric.type !== 'metrics' || !metric.attributes) continue;
+    const attrs = metric.attributes;
+    const id = metric.id;
+    const sample = attrs.sample;
+    if (!sample) continue;
+
+    if (id === 'http_reqs') {
+      if (sample.count !== undefined && info.metrics.http_reqs !== sample.count) {
+        info.metrics.http_reqs = sample.count;
+        changed = true;
+      }
+      if (sample.rate !== undefined && info.metrics.http_reqs_rate !== sample.rate) {
+        info.metrics.http_reqs_rate = sample.rate;
+        changed = true;
+      }
+    }
+
+    if (id === 'iterations') {
+      if (sample.count !== undefined && info.metrics.iterations !== sample.count) {
+        info.metrics.iterations = sample.count;
+        changed = true;
+      }
+      if (sample.rate !== undefined && info.metrics.iterations_rate !== sample.rate) {
+        info.metrics.iterations_rate = sample.rate;
+        changed = true;
+      }
+    }
+
+    if (id === 'http_req_duration' && sample.avg !== undefined) {
+      if (info.metrics.http_req_duration !== sample.avg) {
+        info.metrics.http_req_duration = sample.avg;
+        changed = true;
+      }
+    }
+
+    if (id === 'http_req_failed' && sample.rate !== undefined) {
+      if (info.metrics.http_req_failed !== sample.rate) {
+        info.metrics.http_req_failed = sample.rate;
+        changed = true;
+      }
+    }
+
+    if (id === 'vus' && sample.value !== undefined) {
+      if (info.currentVUs !== sample.value) {
+        info.currentVUs = sample.value;
+        info.metrics.vus = sample.value;
+        changed = true;
+      }
+    }
+
+    if (id === 'data_received' && sample.rate !== undefined) {
+      if (info.metrics.data_received_rate !== sample.rate) {
+        info.metrics.data_received_rate = sample.rate;
+        changed = true;
+      }
+    }
+
+    if (id === 'data_sent' && sample.rate !== undefined) {
+      if (info.metrics.data_sent_rate !== sample.rate) {
+        info.metrics.data_sent_rate = sample.rate;
+        changed = true;
+      }
+    }
+  }
+
+  return changed;
+}
+
 export async function runK6Test(config: TestConfig): Promise<TestInfo> {
   return new Promise(async (resolve, reject) => {
     const testId = uuidv4();
@@ -147,12 +285,14 @@ export async function runK6Test(config: TestConfig): Promise<TestInfo> {
 
       const useDashboard = config.useDashboard !== false;
       const dashboardPort = config.dashboardPort || 5665;
+      const restAPIPort = config.restAPIPort || 6565;
 
       const env = {
         ...process.env,
         ...config.env,
         K6_WEB_DASHBOARD: useDashboard ? 'true' : 'false',
         K6_WEB_DASHBOARD_PORT: String(dashboardPort),
+        K6_ADDRESS: `localhost:${restAPIPort}`,
         K6_EXPERIMENTAL: 'true',
         FORCE_COLOR: '1',
       };
@@ -164,12 +304,12 @@ export async function runK6Test(config: TestConfig): Promise<TestInfo> {
         args.push(...config.args.split(' '));
       }
 
-      console.log(`🚀 Running test ${testId}: ${k6Path} ${args.join(' ')}`);
+      console.log(`🚀 Running test ${testId}`);
 
       const k6Process = spawn(k6Path, args, {
         env,
         shell: true,
-        stdio: ['pipe', 'pipe', 'pipe']
+        stdio: ['pipe', 'pipe', 'pipe'],
       });
 
       const emitter = new EventEmitter();
@@ -177,6 +317,9 @@ export async function runK6Test(config: TestConfig): Promise<TestInfo> {
 
       let stdout = '';
       let stderr = '';
+      let lastEmittedProgress = -1;
+
+      const totalDurationSeconds = parseDurationToSeconds(config.options.duration || '30s');
 
       const info: TestInfo = {
         id: testId,
@@ -192,74 +335,67 @@ export async function runK6Test(config: TestConfig): Promise<TestInfo> {
         metrics: {},
         stage: '',
         currentVUs: 0,
-        currentTime: '',
-        totalTime: '',
-        dashboardUrl: undefined,
+        dashboardUrl: useDashboard ? `http://localhost:${dashboardPort}/ui/` : undefined,
+        lastUpdate: Date.now(),
+        restAPIPort: restAPIPort,
+        useDashboard: useDashboard,
+        isCompleted: false,
+        elapsedSeconds: 0,
+        remainingSeconds: totalDurationSeconds,
+        totalDurationSeconds: totalDurationSeconds,
       };
 
       runningTests.set(testId, info);
 
-      // If dashboard is enabled, connect to WebSocket
-      if (useDashboard) {
-        const dashboardClient = new K6DashboardClient(dashboardPort);
-        info.dashboardClient = dashboardClient;
+      /**
+       * ⭐ CRITICAL: EMIT UPDATE - This sends data to the frontend
+       * AND updates runningTests so getTestStatus returns fresh data
+       */
+      const emitUpdate = (force = false) => {
+        const now = Date.now();
+        if (!force && now - info.lastUpdate < 100) return;
+        info.lastUpdate = now;
 
-        // Listen for real-time metrics from dashboard
-        dashboardClient.on('metrics', (metrics: DashboardMetrics) => {
-          // Update test info with dashboard metrics
-          info.progress = metrics.progress;
-          info.currentVUs = metrics.vu;
-          info.metrics = {
-            ...info.metrics,
-            http_req_duration: metrics.http_req_duration,
-            http_reqs: metrics.http_reqs,
-            http_req_failed: metrics.http_req_failed,
-            vus: metrics.vu,
-            iterations: metrics.iterations,
-          };
+        const elapsed = (Date.now() - new Date(info.startTime).getTime()) / 1000;
+        info.elapsedSeconds = Math.round(elapsed);
+        info.remainingSeconds = Math.max(0, totalDurationSeconds - Math.round(elapsed));
 
-          // Build stage string
-          if (metrics.stage) {
-            info.stage = metrics.stage;
-          } else if (metrics.currentTime && metrics.totalTime) {
-            info.stage = `${metrics.vu} VUs - ${metrics.currentTime}/${metrics.totalTime}`;
-          }
-
-          // Dashboard URL
-          if (!info.dashboardUrl) {
-            info.dashboardUrl = `http://localhost:${dashboardPort}/ui/`;
-          }
-
-          // Emit update
-          const { process: _, dashboardClient: __, ...clean } = info;
+        if (force || info.progress !== lastEmittedProgress) {
+          lastEmittedProgress = info.progress;
+          
+          // ⭐ CRITICAL FIX: Update runningTests with latest info
+          runningTests.set(testId, { ...info });
+          
+          const { process, ...clean } = info;
           emitter.emit('update', clean);
-        });
+          console.log(`📤 Emitted: progress=${info.progress}%, status=${info.status}`);
+        }
+      };
 
-        dashboardClient.on('complete', (metrics: DashboardMetrics) => {
-          info.status = metrics.status;
-          info.progress = 100;
-          const { process: _, dashboardClient: __, ...clean } = info;
-          emitter.emit('update', { ...clean, complete: true });
-          emitter.emit('complete', info);
-        });
+      // EMIT INITIAL UPDATE
+      setTimeout(() => {
+        emitUpdate(true);
+        console.log('📤 Initial update sent');
+      }, 100);
 
-        dashboardClient.on('error', (error) => {
-          console.error('Dashboard client error:', error);
-          // Don't fail the test if dashboard fails - we still have stdout
-        });
-
-        // Connect to dashboard
-        dashboardClient.connect();
-
-        // Store dashboard URL
-        setTimeout(() => {
-          if (!info.dashboardUrl) {
-            info.dashboardUrl = `http://localhost:${dashboardPort}/ui/`;
+      // REST API Polling for metrics
+      const pollInterval = setInterval(async () => {
+        try {
+          const data = await fetchMetricsFromRESTAPI(restAPIPort);
+          if (data) {
+            const changed = processMetricsFromRESTAPI(data, info);
+            if (changed) {
+              // ⭐ Update runningTests when metrics change
+              runningTests.set(testId, { ...info });
+              emitUpdate();
+            }
           }
-        }, 1000);
-      }
+        } catch (error) {
+          // Silent fail
+        }
+      }, 500);
 
-      // Still capture stdout for fallback and debugging
+      // Process stdout - MAIN SOURCE OF PROGRESS
       let buffer = '';
       k6Process.stdout.on('data', (data) => {
         const chunk = data.toString();
@@ -271,46 +407,66 @@ export async function runK6Test(config: TestConfig): Promise<TestInfo> {
 
         for (const line of lines) {
           if (line.trim()) {
-            // Parse only dashboard URL from stdout
-            const dashboardMatch = line.match(/Web dashboard is available at (http:\/\/[^\s]+)/);
-            if (dashboardMatch && !info.dashboardUrl) {
-              info.dashboardUrl = dashboardMatch[1];
-              const { process: _, dashboardClient: __, ...clean } = info;
-              emitter.emit('update', clean);
+            const changed = parseStdoutLine(line, info);
+            if (changed) {
+              // ⭐ CRITICAL FIX: Update runningTests when progress changes
+              runningTests.set(testId, { ...info });
+              emitUpdate();
+              console.log(`📤 Emitted update after progress change`);
             }
-            console.log(`[k6-${testId}] ${line.trim()}`);
+            console.log(`[k6] ${line.trim()}`);
           }
         }
       });
 
+      // Handle stderr
       k6Process.stderr.on('data', (data) => {
         const chunk = data.toString();
         stderr += chunk;
-        console.error(`[k6-${testId}] ${chunk.trim()}`);
+        console.error(`[k6] ${chunk.trim()}`);
       });
 
+      // Safety interval - emit every second as fallback
+      const safetyInterval = setInterval(() => {
+        if (info.status === 'running') {
+          // ⭐ Update runningTests on safety interval too
+          runningTests.set(testId, { ...info });
+          emitUpdate();
+        } else {
+          clearInterval(safetyInterval);
+        }
+      }, 1000);
+
+      // Handle process exit
       k6Process.on('close', async (code) => {
-        // If dashboard didn't send complete event, we do it here
         if (info.status === 'running') {
           info.status = code === 0 ? 'completed' : 'failed';
           info.exitCode = code;
           info.progress = 100;
-          const { process: _, dashboardClient: __, ...clean } = info;
+          info.isCompleted = true;
+          info.remainingSeconds = 0;
+
+          clearInterval(pollInterval);
+          clearInterval(safetyInterval);
+
+          // ⭐ Final update
+          runningTests.set(testId, { ...info });
+          emitUpdate(true);
+          const { process, ...clean } = info;
           emitter.emit('update', { ...clean, complete: true });
           emitter.emit('complete', info);
+          console.log(`✅ Test completed: ${info.status}`);
         }
 
         info.endTime = new Date().toISOString();
         info.stdout = stdout;
         info.stderr = stderr;
 
-        // Read JSON results if available
         if (config.output === 'json') {
           try {
             await fs.access(resultsPath);
             const results = await fs.readFile(resultsPath, 'utf-8');
             info.results = results;
-
             const lines = results.split('\n').filter(line => line.trim());
             for (const line of lines) {
               try {
@@ -325,13 +481,6 @@ export async function runK6Test(config: TestConfig): Promise<TestInfo> {
           }
         }
 
-        // Cleanup dashboard client
-        if (info.dashboardClient) {
-          info.dashboardClient.disconnect();
-          info.dashboardClient = undefined;
-        }
-
-        // Cleanup temp files
         try {
           await fs.unlink(scriptPath).catch(() => {});
           await fs.unlink(resultsPath).catch(() => {});
@@ -346,19 +495,13 @@ export async function runK6Test(config: TestConfig): Promise<TestInfo> {
       k6Process.on('error', (err) => {
         info.status = 'error';
         info.error = err.message;
-
-        if (info.dashboardClient) {
-          info.dashboardClient.disconnect();
-          info.dashboardClient = undefined;
-        }
-
+        info.isCompleted = true;
+        clearInterval(pollInterval);
+        clearInterval(safetyInterval);
+        runningTests.set(testId, { ...info });
         emitter.emit('error', err);
         reject(err);
       });
-
-      // Send initial update
-      const { process: _, dashboardClient: __, ...clean } = info;
-      emitter.emit('update', clean);
 
     } catch (error: any) {
       reject(error);
@@ -366,54 +509,111 @@ export async function runK6Test(config: TestConfig): Promise<TestInfo> {
   });
 }
 
-/**
- * Get current test status
- */
 export function getTestStatus(testId: string): TestInfo | null {
   const test = runningTests.get(testId);
   if (!test) return null;
-  const { process, dashboardClient, ...clean } = test;
-  return clean;
+  const { process, ...clean } = test;
+  return clean as TestInfo;
 }
 
-/**
- * Get test event emitter
- */
 export function getTestEmitter(testId: string): EventEmitter | null {
   return testEmitters.get(testId) || null;
 }
 
-/**
- * Terminate a running test
- */
-export function terminateTest(testId: string): boolean {
+export async function terminateTest(testId: string): Promise<boolean> {
   const info = runningTests.get(testId);
-  if (info && info.process) {
-    info.process.kill('SIGTERM');
-    info.status = 'terminated';
-    info.progress = 100;
+  if (!info || !info.process) return false;
 
-    if (info.dashboardClient) {
-      info.dashboardClient.disconnect();
-      info.dashboardClient = undefined;
+  const restAPIPort = info.restAPIPort || 6565;
+
+  try {
+    const response = await fetch(`http://localhost:${restAPIPort}/v1/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        data: {
+          type: 'status',
+          id: 'default',
+          attributes: {
+            stopped: true,
+          },
+        },
+      }),
+    });
+
+    if (response.ok) {
+      console.log(`✅ Test ${testId} terminated via REST API`);
+      info.status = 'terminated';
+      info.progress = 100;
+      info.isCompleted = true;
+      info.remainingSeconds = 0;
+
+      runningTests.set(testId, { ...info });
+
+      const emitter = testEmitters.get(testId);
+      if (emitter) {
+        const { process, ...clean } = info;
+        emitter.emit('update', { ...clean, complete: true });
+      }
+
+      return true;
     }
 
-    const emitter = testEmitters.get(testId);
-    if (emitter) {
-      const { process, dashboardClient, ...clean } = info;
-      emitter.emit('update', { ...clean, complete: true });
+    if (info.process) {
+      info.process.kill('SIGTERM');
+      info.status = 'terminated';
+      info.progress = 100;
+      info.isCompleted = true;
+      info.remainingSeconds = 0;
+
+      runningTests.set(testId, { ...info });
+
+      const emitter = testEmitters.get(testId);
+      if (emitter) {
+        const { process, ...clean } = info;
+        emitter.emit('update', { ...clean, complete: true });
+      }
+
+      return true;
     }
-    return true;
+
+    return false;
+  } catch (error) {
+    if (info.process) {
+      info.process.kill('SIGTERM');
+      info.status = 'terminated';
+      info.progress = 100;
+      info.isCompleted = true;
+      info.remainingSeconds = 0;
+
+      runningTests.set(testId, { ...info });
+
+      const emitter = testEmitters.get(testId);
+      if (emitter) {
+        const { process, ...clean } = info;
+        emitter.emit('update', { ...clean, complete: true });
+      }
+
+      return true;
+    }
+
+    return false;
   }
-  return false;
 }
 
-/**
- * List all tests
- */
 export function listTests() {
   return Array.from(runningTests.values()).map(({
-    id, status, progress, startTime, config, stage, dashboardUrl
+    id,
+    status,
+    progress,
+    startTime,
+    config,
+    stage,
+    dashboardUrl,
+    isCompleted,
+    elapsedSeconds,
+    remainingSeconds,
+    totalDurationSeconds,
   }) => ({
     id,
     status,
@@ -422,5 +622,9 @@ export function listTests() {
     config: config.request.url,
     stage: stage || '',
     dashboardUrl,
+    isCompleted: isCompleted || false,
+    elapsedSeconds: elapsedSeconds || 0,
+    remainingSeconds: remainingSeconds || 0,
+    totalDurationSeconds: totalDurationSeconds || 0,
   }));
 }

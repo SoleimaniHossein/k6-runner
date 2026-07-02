@@ -1,6 +1,5 @@
 // lib/dashboard-client.ts
 import { EventEmitter } from 'events';
-import WebSocket from 'ws';
 
 export interface DashboardMetrics {
   progress: number;
@@ -9,8 +8,6 @@ export interface DashboardMetrics {
   http_req_duration: number;
   http_reqs: number;
   http_req_failed: number;
-  data_received: number;
-  data_sent: number;
   status: 'running' | 'completed' | 'failed' | 'terminated';
   timestamp: number;
   stage?: string;
@@ -19,27 +16,25 @@ export interface DashboardMetrics {
 }
 
 /**
- * K6 Dashboard Client - Connects to K6 WebSocket for real-time metrics
+ * K6 Dashboard Client - Uses HTTP API for real-time metrics
+ * Most reliable method as it uses standard HTTP requests
  */
 export class K6DashboardClient extends EventEmitter {
   private port: number;
-  private ws: WebSocket | null = null;
-  private reconnectTimer: NodeJS.Timeout | null = null;
+  private pollTimer: NodeJS.Timeout | null = null;
   private isConnected = false;
-  private reconnectAttempts = 0;
-  private maxReconnectAttempts = 10;
-  private metrics: DashboardMetrics = {
+  private lastMetrics: DashboardMetrics = {
     progress: 0,
     vu: 0,
     iterations: 0,
     http_req_duration: 0,
     http_reqs: 0,
     http_req_failed: 0,
-    data_received: 0,
-    data_sent: 0,
     status: 'running',
     timestamp: Date.now(),
   };
+  private lastProgress: number = -1;
+  private lastStatus: string = '';
 
   constructor(port: number = 5665) {
     super();
@@ -47,155 +42,156 @@ export class K6DashboardClient extends EventEmitter {
   }
 
   /**
-   * Connect to K6 WebSocket Dashboard
+   * Start polling the K6 Dashboard API every 500ms
    */
   connect(): void {
+    console.log(`📊 Connecting to K6 Dashboard API on port ${this.port}...`);
+    this.isConnected = true;
+    this.emit('connected', 'http-api');
+
+    // Clear any existing timer
+    if (this.pollTimer) {
+      clearInterval(this.pollTimer);
+    }
+
+    // Poll every 500ms for real-time updates
+    this.pollTimer = setInterval(async () => {
+      try {
+        await this.fetchMetrics();
+      } catch (error) {
+        // Silent fail - keep polling
+      }
+    }, 500);
+  }
+
+  /**
+   * Fetch metrics from K6 Dashboard API
+   */
+  private async fetchMetrics(): Promise<void> {
     try {
-      const wsUrl = `ws://localhost:${this.port}/ws`;
-      console.log(`🔌 Connecting to K6 WebSocket: ${wsUrl}`);
-
-      this.ws = new WebSocket(wsUrl);
-
-      this.ws.on('open', () => {
-        console.log('✅ WebSocket connected to K6 Dashboard');
-        this.isConnected = true;
-        this.reconnectAttempts = 0;
-        this.emit('connected');
-      });
-
-      this.ws.on('message', (data: WebSocket.Data) => {
-        try {
-          const message = data.toString();
-          const parsed = JSON.parse(message);
-          this.processMetrics(parsed);
-        } catch (err) {
-          // Silent fail for invalid JSON
+      // Try to get status first
+      const statusRes = await fetch(`http://localhost:${this.port}/api/v1/status`);
+      if (!statusRes.ok) {
+        // Try alternative endpoint
+        const altRes = await fetch(`http://localhost:${this.port}/api/status`);
+        if (!altRes.ok) {
+          return;
         }
-      });
+        const data = await altRes.json();
+        this.processMetrics(data);
+        return;
+      }
 
-      this.ws.on('error', (error) => {
-        console.warn('⚠️ WebSocket error:', error.message);
-        this.isConnected = false;
-        this.emit('error', error);
-      });
+      const data = await statusRes.json();
+      this.processMetrics(data);
 
-      this.ws.on('close', () => {
-        console.warn('⚠️ WebSocket closed');
-        this.isConnected = false;
-        this.emit('disconnected');
-        this.reconnect();
-      });
+      // Also try to get detailed metrics if available
+      try {
+        const metricsRes = await fetch(`http://localhost:${this.port}/api/v1/metrics`);
+        if (metricsRes.ok) {
+          const metricsData = await metricsRes.json();
+          // Merge metrics
+          this.processMetrics({ ...data, ...metricsData });
+        }
+      } catch {
+        // Metrics endpoint might not exist, skip
+      }
 
     } catch (error) {
-      console.error('❌ Failed to connect to WebSocket:', error);
-      this.emit('error', error);
+      // Silent fail - server might not be ready yet
     }
   }
 
   /**
-   * Process incoming metrics from WebSocket
+   * Process incoming metrics from API
    */
   private processMetrics(data: any): void {
     let changed = false;
+    const metrics = { ...this.lastMetrics };
 
-    // Update metrics
-    if (data.progress !== undefined && data.progress !== this.metrics.progress) {
-      this.metrics.progress = data.progress;
+    // Progress
+    if (data.progress !== undefined && data.progress !== metrics.progress) {
+      metrics.progress = data.progress;
       changed = true;
     }
 
-    if (data.vu !== undefined && data.vu !== this.metrics.vu) {
-      this.metrics.vu = data.vu;
+    // VUs
+    if (data.vu !== undefined && data.vu !== metrics.vu) {
+      metrics.vu = data.vu;
       changed = true;
     }
 
-    if (data.iterations !== undefined && data.iterations !== this.metrics.iterations) {
-      this.metrics.iterations = data.iterations;
+    // Iterations
+    if (data.iterations !== undefined && data.iterations !== metrics.iterations) {
+      metrics.iterations = data.iterations;
       changed = true;
     }
 
-    if (data.http_req_duration !== undefined && data.http_req_duration !== this.metrics.http_req_duration) {
-      this.metrics.http_req_duration = data.http_req_duration;
+    // HTTP metrics
+    if (data.http_req_duration !== undefined && data.http_req_duration !== metrics.http_req_duration) {
+      metrics.http_req_duration = data.http_req_duration;
       changed = true;
     }
 
-    if (data.http_reqs !== undefined && data.http_reqs !== this.metrics.http_reqs) {
-      this.metrics.http_reqs = data.http_reqs;
+    if (data.http_reqs !== undefined && data.http_reqs !== metrics.http_reqs) {
+      metrics.http_reqs = data.http_reqs;
       changed = true;
     }
 
-    if (data.http_req_failed !== undefined && data.http_req_failed !== this.metrics.http_req_failed) {
-      this.metrics.http_req_failed = data.http_req_failed;
+    if (data.http_req_failed !== undefined && data.http_req_failed !== metrics.http_req_failed) {
+      metrics.http_req_failed = data.http_req_failed;
       changed = true;
     }
 
-    if (data.status && data.status !== this.metrics.status) {
-      this.metrics.status = data.status;
+    // Status
+    if (data.status && data.status !== metrics.status) {
+      metrics.status = data.status;
       changed = true;
     }
 
-    // Stage information
+    // Stage info
     if (data.stage) {
-      this.metrics.stage = data.stage;
+      metrics.stage = data.stage;
       changed = true;
     }
 
     if (data.currentTime) {
-      this.metrics.currentTime = data.currentTime;
+      metrics.currentTime = data.currentTime;
       changed = true;
     }
 
     if (data.totalTime) {
-      this.metrics.totalTime = data.totalTime;
+      metrics.totalTime = data.totalTime;
       changed = true;
     }
 
-    this.metrics.timestamp = Date.now();
+    metrics.timestamp = Date.now();
 
-    // Emit update if anything changed
-    if (changed) {
-      this.emit('metrics', this.metrics);
-      this.emit('progress', this.metrics.progress);
+    // Update last metrics
+    this.lastMetrics = metrics;
+
+    // Emit if changed or if we haven't emitted in a while
+    if (changed || metrics.progress !== this.lastProgress) {
+      this.lastProgress = metrics.progress;
+      this.emit('metrics', metrics);
+      this.emit('progress', metrics.progress);
     }
 
     // Check if test is complete
-    if (data.status === 'completed' || data.status === 'failed' || data.status === 'terminated') {
-      this.emit('complete', this.metrics);
-      this.disconnect();
-    }
-  }
-
-  /**
-   * Reconnect with exponential backoff
-   */
-  private reconnect(): void {
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer);
-    }
-
-    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      console.error('❌ Max reconnect attempts reached');
-      this.emit('error', new Error('Max reconnect attempts reached'));
-      return;
-    }
-
-    const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000);
-    this.reconnectAttempts++;
-
-    console.log(`🔄 Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
-
-    this.reconnectTimer = setTimeout(() => {
-      if (!this.isConnected) {
-        this.connect();
+    if (metrics.status === 'completed' || metrics.status === 'failed' || metrics.status === 'terminated') {
+      if (this.lastStatus !== metrics.status) {
+        this.lastStatus = metrics.status;
+        this.emit('complete', metrics);
+        this.disconnect();
       }
-    }, delay);
+    }
   }
 
   /**
    * Get current metrics
    */
   getMetrics(): DashboardMetrics {
-    return { ...this.metrics };
+    return { ...this.lastMetrics };
   }
 
   /**
@@ -209,13 +205,9 @@ export class K6DashboardClient extends EventEmitter {
    * Disconnect from dashboard
    */
   disconnect(): void {
-    if (this.ws) {
-      this.ws.close();
-      this.ws = null;
-    }
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
+    if (this.pollTimer) {
+      clearInterval(this.pollTimer);
+      this.pollTimer = null;
     }
     this.isConnected = false;
     this.emit('disconnected');

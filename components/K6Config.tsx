@@ -1,18 +1,45 @@
 // components/K6Config.tsx
 'use client';
+
 import { useState } from 'react';
 
-export default function K6Config({ options, envVars, args, output, useDashboard, dashboardPort, onChange }: any) {
-  const [newKey, setNewKey] = useState('');
-  const [newValue, setNewValue] = useState('');
+interface K6ConfigProps {
+  options: {
+    vus: number;
+    duration: string;
+    stages?: string;
+    thresholds?: string;
+    gracefulStop?: string;
+  };
+  envVars: Record<string, string>;
+  args: string;
+  output: string;
+  useDashboard?: boolean;
+  dashboardPort?: number;
+  restAPIPort?: number;
+  onChange: (updates: any) => void;
+}
+
+export default function K6Config({
+  options,
+  envVars,
+  args,
+  output,
+  useDashboard = true,
+  dashboardPort = 5665,
+  restAPIPort = 6565,
+  onChange,
+}: K6ConfigProps) {
+  const [newEnvKey, setNewEnvKey] = useState('');
+  const [newEnvValue, setNewEnvValue] = useState('');
   const [useStages, setUseStages] = useState(!!options.stages);
   const [useThresholds, setUseThresholds] = useState(!!options.thresholds);
 
   const addEnv = () => {
-    if (newKey && newValue) {
-      onChange({ envVars: { ...envVars, [newKey]: newValue } });
-      setNewKey('');
-      setNewValue('');
+    if (newEnvKey && newEnvValue) {
+      onChange({ envVars: { ...envVars, [newEnvKey]: newEnvValue } });
+      setNewEnvKey('');
+      setNewEnvValue('');
     }
   };
 
@@ -27,6 +54,7 @@ export default function K6Config({ options, envVars, args, output, useDashboard,
       <h2 className="text-xl font-semibold text-[var(--text-primary)] mb-6 pb-2 border-b border-[var(--border-color)]">
         ⚙️ K6 Configuration
       </h2>
+
       <div className="space-y-4">
         <div className="grid grid-cols-2 gap-4">
           <div>
@@ -51,16 +79,42 @@ export default function K6Config({ options, envVars, args, output, useDashboard,
           </div>
         </div>
 
+        {/* ⭐ Graceful Stop - NEW */}
+        <div>
+          <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">
+            Graceful Stop
+          </label>
+          <input
+            type="text"
+            value={options.gracefulStop || '0s'}
+            onChange={(e) => onChange({ 
+              options: { ...options, gracefulStop: e.target.value } 
+            })}
+            placeholder="0s, 5s, 10s"
+            className="w-full px-3 py-2 border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-primary)] rounded-lg"
+          />
+          <p className="text-xs text-[var(--text-muted)] mt-1">
+            Time to wait for iterations to finish (0s = immediate stop)
+          </p>
+        </div>
+
+        {/* Web Dashboard Toggle */}
         <div className="border-t border-[var(--border-color)] pt-4">
           <div className="flex items-center justify-between">
-            <label className="text-sm font-medium text-[var(--text-secondary)]">📊 Live Dashboard</label>
+            <label className="text-sm font-medium text-[var(--text-secondary)]">📊 Web Dashboard</label>
             <div className="flex items-center gap-2">
               <span className="text-xs text-[var(--text-muted)]">{useDashboard ? 'Enabled' : 'Disabled'}</span>
               <button
                 onClick={() => onChange({ useDashboard: !useDashboard })}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${useDashboard ? 'bg-purple-600' : 'bg-gray-300 dark:bg-gray-600'}`}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                  useDashboard ? 'bg-purple-600' : 'bg-gray-300 dark:bg-gray-600'
+                }`}
               >
-                <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${useDashboard ? 'translate-x-6' : 'translate-x-1'}`} />
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    useDashboard ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
               </button>
             </div>
           </div>
@@ -75,15 +129,40 @@ export default function K6Config({ options, envVars, args, output, useDashboard,
                 max="65535"
                 className="w-full px-3 py-1 border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-primary)] rounded text-sm"
               />
-              <p className="text-xs text-[var(--text-muted)] mt-1">Access at http://localhost:{dashboardPort}</p>
+              <p className="text-xs text-[var(--text-muted)] mt-1">Access at http://localhost:{dashboardPort}/ui/</p>
             </div>
           )}
         </div>
 
+        {/* REST API Port */}
+        <div className="border-t border-[var(--border-color)] pt-4">
+          <div className="flex items-center justify-between">
+            <label className="text-sm font-medium text-[var(--text-secondary)]">🔌 REST API Port</label>
+            <span className="text-xs text-[var(--text-muted)]">Required for metrics</span>
+          </div>
+          <div className="mt-2">
+            <input
+              type="number"
+              value={restAPIPort}
+              onChange={(e) => onChange({ restAPIPort: parseInt(e.target.value) || 6565 })}
+              min="1024"
+              max="65535"
+              className="w-full px-3 py-1 border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-primary)] rounded text-sm"
+            />
+            <p className="text-xs text-[var(--text-muted)] mt-1">
+              API at http://localhost:{restAPIPort}/v1/status
+            </p>
+          </div>
+        </div>
+
+        {/* Stages */}
         <div>
           <div className="flex items-center justify-between mb-1">
             <label className="text-sm font-medium text-[var(--text-secondary)]">Stages</label>
-            <button onClick={() => setUseStages(!useStages)} className="text-sm text-purple-600 dark:text-purple-400 hover:underline">
+            <button
+              onClick={() => setUseStages(!useStages)}
+              className="text-sm text-purple-600 dark:text-purple-400 hover:underline"
+            >
               {useStages ? 'Disable' : 'Enable'}
             </button>
           </div>
@@ -98,10 +177,14 @@ export default function K6Config({ options, envVars, args, output, useDashboard,
           )}
         </div>
 
+        {/* Thresholds */}
         <div>
           <div className="flex items-center justify-between mb-1">
             <label className="text-sm font-medium text-[var(--text-secondary)]">Thresholds</label>
-            <button onClick={() => setUseThresholds(!useThresholds)} className="text-sm text-purple-600 dark:text-purple-400 hover:underline">
+            <button
+              onClick={() => setUseThresholds(!useThresholds)}
+              className="text-sm text-purple-600 dark:text-purple-400 hover:underline"
+            >
               {useThresholds ? 'Disable' : 'Enable'}
             </button>
           </div>
@@ -116,6 +199,7 @@ export default function K6Config({ options, envVars, args, output, useDashboard,
           )}
         </div>
 
+        {/* Output Format */}
         <div>
           <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">Output Format</label>
           <select
@@ -128,6 +212,7 @@ export default function K6Config({ options, envVars, args, output, useDashboard,
           </select>
         </div>
 
+        {/* Additional Arguments */}
         <div>
           <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">Additional Arguments</label>
           <input
@@ -139,6 +224,7 @@ export default function K6Config({ options, envVars, args, output, useDashboard,
           />
         </div>
 
+        {/* Environment Variables */}
         <div>
           <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">Environment Variables</label>
           {Object.entries(envVars).map(([key, value]) => (
@@ -161,25 +247,35 @@ export default function K6Config({ options, envVars, args, output, useDashboard,
                 onChange={(e) => onChange({ envVars: { ...envVars, [key]: e.target.value } })}
                 className="flex-1 px-3 py-1 border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-primary)] rounded text-sm"
               />
-              <button onClick={() => removeEnv(key)} className="px-2 py-1 bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded hover:bg-red-200">✕</button>
+              <button
+                onClick={() => removeEnv(key)}
+                className="px-2 py-1 bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded hover:bg-red-200"
+              >
+                ✕
+              </button>
             </div>
           ))}
           <div className="flex gap-2">
             <input
               type="text"
-              value={newKey}
-              onChange={(e) => setNewKey(e.target.value)}
+              value={newEnvKey}
+              onChange={(e) => setNewEnvKey(e.target.value)}
               placeholder="Variable name"
               className="flex-1 px-3 py-1 border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-primary)] rounded text-sm"
             />
             <input
               type="text"
-              value={newValue}
-              onChange={(e) => setNewValue(e.target.value)}
+              value={newEnvValue}
+              onChange={(e) => setNewEnvValue(e.target.value)}
               placeholder="Variable value"
               className="flex-1 px-3 py-1 border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-primary)] rounded text-sm"
             />
-            <button onClick={addEnv} className="px-3 py-1 bg-purple-600 text-white rounded hover:bg-purple-700">+</button>
+            <button
+              onClick={addEnv}
+              className="px-3 py-1 bg-purple-600 text-white rounded hover:bg-purple-700"
+            >
+              +
+            </button>
           </div>
         </div>
       </div>

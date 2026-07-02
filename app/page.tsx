@@ -26,14 +26,16 @@ interface TestConfig {
   output: string;
   useDashboard?: boolean;
   dashboardPort?: number;
+  restAPIPort?: number;
 }
+
+const STORAGE_KEY = 'k6_test_state';
 
 export default function Home() {
   const [testConfig, setTestConfig] = useState<TestConfig>({
     request: {
       method: 'GET',
-      url: 'http://localhost:5555/',
-      // url: 'https://httpbin.org/get',
+      url: 'https://httpbin.org/get',
       headers: { 'Content-Type': 'application/json' },
       body: '',
     },
@@ -48,8 +50,10 @@ export default function Home() {
     output: 'json',
     useDashboard: true,
     dashboardPort: 5665,
+    restAPIPort: 6565,
   });
 
+  // UI State
   const [isRunning, setIsRunning] = useState(false);
   const [testId, setTestId] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
@@ -60,21 +64,93 @@ export default function Home() {
   const [statusMessage, setStatusMessage] = useState('');
   const [currentStage, setCurrentStage] = useState('');
   const [liveMetrics, setLiveMetrics] = useState<any>({});
+  const [currentVUs, setCurrentVUs] = useState<number>(0);
   const [dashboardUrl, setDashboardUrl] = useState<string | undefined>(undefined);
   const [showDashboard, setShowDashboard] = useState(false);
   const [isTerminating, setIsTerminating] = useState(false);
+  const [showProgress, setShowProgress] = useState(false);
+  const [elapsedTime, setElapsedTime] = useState<string>('0s');
+  const [remainingTime, setRemainingTime] = useState<string>('0s');
+  const [totalTime, setTotalTime] = useState<string>('0s');
 
-  const eventSourceRef = useRef<EventSource | null>(null);
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const isMounted = useRef(true);
-  const updateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const updateCounterRef = useRef(0);
+
+  // Load persisted state
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        const state = JSON.parse(saved);
+        if (state.testId && state.isRunning) {
+          setTestId(state.testId);
+          setIsRunning(state.isRunning);
+          setProgress(state.progress || 0);
+          setStatusMessage(state.statusMessage || '');
+          setCurrentStage(state.currentStage || '');
+          setLiveMetrics(state.liveMetrics || {});
+          setCurrentVUs(state.currentVUs || 0);
+          setDashboardUrl(state.dashboardUrl);
+          setShowDashboard(state.showDashboard || false);
+          setShowProgress(state.showProgress || false);
+          setElapsedTime(state.elapsedTime || '0s');
+          setRemainingTime(state.remainingTime || '0s');
+          setTotalTime(state.totalTime || '0s');
+        }
+      }
+    } catch (error) {
+      console.error('Error loading persisted state:', error);
+    }
+  }, []);
+
+  // Persist state
+  useEffect(() => {
+    try {
+      const state = {
+        testId,
+        isRunning,
+        progress,
+        statusMessage,
+        currentStage,
+        liveMetrics,
+        currentVUs,
+        dashboardUrl,
+        showDashboard,
+        showProgress,
+        elapsedTime,
+        remainingTime,
+        totalTime,
+        timestamp: Date.now(),
+      };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    } catch (error) {
+      console.error('Error persisting state:', error);
+    }
+  }, [
+    testId,
+    isRunning,
+    progress,
+    statusMessage,
+    currentStage,
+    liveMetrics,
+    currentVUs,
+    dashboardUrl,
+    showDashboard,
+    showProgress,
+    elapsedTime,
+    remainingTime,
+    totalTime,
+  ]);
 
   const loadTests = useCallback(async () => {
     try {
       const response = await fetch('/api/test?action=list');
       if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
       const data = await response.json();
-      if (isMounted.current) setTests(Array.isArray(data) ? data : []);
+      if (isMounted.current) {
+        setTests(Array.isArray(data) ? data : []);
+      }
     } catch (error) {
       console.error('Error loading tests:', error);
       if (isMounted.current) setTests([]);
@@ -85,90 +161,141 @@ export default function Home() {
     loadTests();
     return () => {
       isMounted.current = false;
-      if (updateTimeoutRef.current) clearTimeout(updateTimeoutRef.current);
     };
   }, [loadTests]);
 
+  /**
+   * Central update function - THIS IS WHERE UI UPDATES HAPPEN
+   */
   const updateState = useCallback((data: any) => {
     if (!isMounted.current) return;
 
-    if (updateTimeoutRef.current) clearTimeout(updateTimeoutRef.current);
+    updateCounterRef.current++;
+    console.log(`📊 UI Update #${updateCounterRef.current}:`, {
+      progress: data.progress,
+      status: data.status,
+      stage: data.stage,
+    });
 
-    updateTimeoutRef.current = setTimeout(() => {
-      if (data.error) {
-        setError(data.error);
-        setIsRunning(false);
-        return;
+    if (data.error) {
+      setError(data.error);
+      setIsRunning(false);
+      setShowProgress(false);
+      return;
+    }
+
+    // ⭐ UPDATE PROGRESS - THIS IS CRITICAL FOR UI
+    if (data.progress !== undefined) {
+      setProgress(data.progress);
+      console.log(`📈 UI Progress set to: ${data.progress}%`);
+    }
+
+    if (data.stage) {
+      setCurrentStage(data.stage);
+    }
+
+    if (data.metrics) {
+      setLiveMetrics(data.metrics);
+      if (data.metrics.vus !== undefined) {
+        setCurrentVUs(data.metrics.vus);
+      }
+    }
+
+    if (data.status) {
+      setStatusMessage(data.status);
+    }
+
+    if (data.elapsedSeconds !== undefined) {
+      const mins = Math.floor(data.elapsedSeconds / 60);
+      const secs = data.elapsedSeconds % 60;
+      setElapsedTime(mins > 0 ? `${mins}m${secs}s` : `${secs}s`);
+    }
+
+    if (data.remainingSeconds !== undefined) {
+      const mins = Math.floor(data.remainingSeconds / 60);
+      const secs = data.remainingSeconds % 60;
+      setRemainingTime(mins > 0 ? `${mins}m${secs}s` : `${secs}s`);
+    }
+
+    if (data.totalTime) {
+      setTotalTime(data.totalTime);
+    }
+
+    if (data.dashboardUrl) {
+      setDashboardUrl(data.dashboardUrl);
+    }
+
+    // ⭐ CRITICAL: Show progress bar when ANY progress data is received
+    if (data.progress !== undefined) {
+      setShowProgress(true);
+    }
+
+    // Handle completion
+    if (data.complete || data.status === 'completed' || 
+        data.status === 'failed' || data.status === 'terminated') {
+      console.log('🏁 Test completed:', data.status);
+      setIsRunning(false);
+      setTestResults(data);
+      setTestId(null);
+      setLiveMetrics({});
+      setIsTerminating(false);
+      setShowProgress(false);
+
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
       }
 
-      if (data.progress !== undefined) setProgress(data.progress);
-      if (data.stage) setCurrentStage(data.stage);
-      if (data.metrics) setLiveMetrics(data.metrics);
-      if (data.status) setStatusMessage(data.status);
-      if (data.dashboardUrl) {
-        setDashboardUrl(data.dashboardUrl);
-        if (testConfig.useDashboard) setShowDashboard(true);
-      }
+      loadTests();
+    }
+  }, [loadTests]);
 
-      if (data.complete || data.status === 'completed' || data.status === 'failed' || data.status === 'terminated') {
-        setIsRunning(false);
-        setTestResults(data);
-        setTestId(null);
-        setLiveMetrics({});
-        setShowDashboard(false);
-        setIsTerminating(false);
-        loadTests();
-
-        if (eventSourceRef.current) {
-          eventSourceRef.current.close();
-          eventSourceRef.current = null;
-        }
-        if (pollIntervalRef.current) {
-          clearInterval(pollIntervalRef.current);
-          pollIntervalRef.current = null;
-        }
-      }
-    }, 100);
-  }, [testConfig.useDashboard, loadTests]);
-
+  /**
+   * ⭐ POLLING - Fetches data from API every 300ms
+   */
   useEffect(() => {
     if (isRunning && testId) {
-      if (eventSourceRef.current) eventSourceRef.current.close();
+      console.log('🔌 Setting up POLLING for test:', testId);
+      
+      // ⭐ CRITICAL: Show progress bar immediately
+      setShowProgress(true);
 
-      const eventSource = new EventSource(`/api/test/stream?id=${testId}`);
-      eventSourceRef.current = eventSource;
+      // Clear any existing interval
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+      }
 
-      eventSource.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          updateState(data);
-        } catch (err) {
-          console.error('SSE parse error:', err);
-        }
-      };
-
-      eventSource.onerror = () => {
-        console.warn('SSE error, retrying...');
-      };
-
-      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
-
+      // ⭐ Poll every 300ms for real-time updates
       pollIntervalRef.current = setInterval(async () => {
         try {
+          console.log(`📡 Polling #${updateCounterRef.current + 1}...`);
           const res = await fetch(`/api/test?action=status&id=${testId}`);
-          if (!res.ok) return;
+          
+          if (!res.ok) {
+            console.warn(`⚠️ Polling failed: ${res.status}`);
+            if (res.status === 404) {
+              // Test might have been cleaned up
+              return;
+            }
+            return;
+          }
+          
           const data = await res.json();
+          console.log(`📊 Polling result:`, {
+            progress: data.progress,
+            status: data.status,
+            stage: data.stage,
+          });
+          
+          // ⭐ Call updateState with the data
           updateState(data);
         } catch (err) {
-          console.error('Polling error:', err);
+          console.error('❌ Polling error:', err);
         }
-      }, 500);
+      }, 300);
 
       return () => {
-        if (eventSourceRef.current) {
-          eventSourceRef.current.close();
-          eventSourceRef.current = null;
-        }
+        console.log('🔌 Cleaning up polling');
         if (pollIntervalRef.current) {
           clearInterval(pollIntervalRef.current);
           pollIntervalRef.current = null;
@@ -177,7 +304,11 @@ export default function Home() {
     }
   }, [isRunning, testId, updateState]);
 
+  /**
+   * Start test - immediately shows all components
+   */
   const runTest = async () => {
+    console.log('🚀 Starting test...');
     setLoading(true);
     setError(null);
     setTestResults(null);
@@ -185,31 +316,25 @@ export default function Home() {
     setStatusMessage('');
     setLiveMetrics({});
     setCurrentStage('');
+    
+    // ⭐ IMMEDIATELY SHOW PROGRESS BAR
+    setShowProgress(true);
+    console.log('✅ Progress bar shown');
+    
+    // ⭐ IMMEDIATELY SET DASHBOARD URL FROM CONFIG
+    if (testConfig.useDashboard) {
+      const port = testConfig.dashboardPort || 5665;
+      const url = `http://localhost:${port}/ui/`;
+      console.log('📍 Dashboard URL set from config:', url);
+      setDashboardUrl(url);
+    }
+    
     setShowDashboard(false);
+    setIsTerminating(false);
+    setElapsedTime('0s');
+    setRemainingTime('0s');
 
     try {
-      if (testConfig.request.body && testConfig.request.headers['Content-Type']?.includes('application/json')) {
-        try { JSON.parse(testConfig.request.body); } catch {
-          setError('Invalid JSON in request body');
-          setLoading(false);
-          return;
-        }
-      }
-      if (testConfig.options.stages) {
-        try { JSON.parse(testConfig.options.stages); } catch {
-          setError('Invalid JSON in stages');
-          setLoading(false);
-          return;
-        }
-      }
-      if (testConfig.options.thresholds) {
-        try { JSON.parse(testConfig.options.thresholds); } catch {
-          setError('Invalid JSON in thresholds');
-          setLoading(false);
-          return;
-        }
-      }
-
       const response = await fetch('/api/test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -223,15 +348,23 @@ export default function Home() {
 
       const data = await response.json();
       if (data.success) {
+        console.log('✅ Test started:', data.id);
         setIsRunning(true);
         setTestId(data.id);
         setStatusMessage('Initializing test...');
+        
+        // ⭐ Ensure progress bar is shown
+        setShowProgress(true);
+        
         await loadTests();
       } else {
         setError('Failed to start test');
+        setShowProgress(false);
       }
     } catch (error: any) {
+      console.error('❌ Error starting test:', error);
       setError(error.message || 'Error running test');
+      setShowProgress(false);
     } finally {
       setLoading(false);
     }
@@ -242,6 +375,7 @@ export default function Home() {
     setIsTerminating(true);
 
     try {
+      console.log('🛑 Terminating test:', testId);
       const response = await fetch(`/api/test?action=terminate&id=${testId}`);
       if (response.ok) {
         setIsRunning(false);
@@ -249,11 +383,8 @@ export default function Home() {
         setLiveMetrics({});
         setShowDashboard(false);
         setStatusMessage('Test terminated');
+        setShowProgress(false);
 
-        if (eventSourceRef.current) {
-          eventSourceRef.current.close();
-          eventSourceRef.current = null;
-        }
         if (pollIntervalRef.current) {
           clearInterval(pollIntervalRef.current);
           pollIntervalRef.current = null;
@@ -302,6 +433,7 @@ export default function Home() {
             output={testConfig.output}
             useDashboard={testConfig.useDashboard}
             dashboardPort={testConfig.dashboardPort}
+            restAPIPort={testConfig.restAPIPort}
             onChange={(updates) => setTestConfig({ ...testConfig, ...updates })}
           />
         </div>
@@ -312,7 +444,9 @@ export default function Home() {
             <div className="flex justify-between items-center p-4 border-b border-[var(--border-color)]">
               <div className="flex items-center gap-2">
                 <span className="text-xl">📊</span>
-                <h3 className="text-lg font-semibold text-[var(--text-primary)]">K6 Live Dashboard</h3>
+                <h3 className="text-lg font-semibold text-[var(--text-primary)]">
+                  K6 Live Dashboard
+                </h3>
                 {isRunning && (
                   <span className="ml-2 px-2 py-1 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 text-xs rounded-full animate-pulse">
                     Live
@@ -338,18 +472,23 @@ export default function Home() {
           </div>
         )}
 
-        {/* Progress bar */}
-        {isRunning && (
+        {/* ⭐ Progress Bar - shows immediately when test starts */}
+        {showProgress && isRunning && (
           <TestProgress
             progress={progress}
             status={statusMessage}
             onTerminate={terminateTest}
             metrics={liveMetrics}
             stage={currentStage}
+            currentVUs={currentVUs}
             isTerminating={isTerminating}
+            elapsedTime={elapsedTime}
+            remainingTime={remainingTime}
+            totalTime={totalTime}
           />
         )}
 
+        {/* ⭐ Three action buttons */}
         <div className="flex gap-4 mb-8 flex-wrap">
           <button
             onClick={runTest}
@@ -365,6 +504,17 @@ export default function Home() {
             )}
           </button>
 
+          {/* ⭐ View Dashboard Button */}
+          {dashboardUrl && !showDashboard && (
+            <button
+              onClick={() => setShowDashboard(true)}
+              className="px-8 py-3 bg-green-500 hover:bg-green-600 text-white font-semibold rounded-lg transition-all flex items-center gap-2"
+            >
+              <span>📊</span> View Dashboard
+            </button>
+          )}
+
+          {/* ⭐ Stop Test Button */}
           {isRunning && (
             <button
               onClick={terminateTest}
@@ -376,15 +526,6 @@ export default function Home() {
               ) : (
                 <><span>⏹️</span> Stop Test</>
               )}
-            </button>
-          )}
-
-          {dashboardUrl && !showDashboard && !isRunning && (
-            <button
-              onClick={() => setShowDashboard(true)}
-              className="px-8 py-3 bg-green-500 hover:bg-green-600 text-white font-semibold rounded-lg transition-all flex items-center gap-2"
-            >
-              <span>📊</span> View Dashboard
             </button>
           )}
         </div>
@@ -402,15 +543,19 @@ export default function Home() {
                     <th className="text-left py-2 px-3 text-sm font-semibold text-[var(--text-secondary)]">URL</th>
                     <th className="text-left py-2 px-3 text-sm font-semibold text-[var(--text-secondary)]">Progress</th>
                     <th className="text-left py-2 px-3 text-sm font-semibold text-[var(--text-secondary)]">Status</th>
-                    <th className="text-left py-2 px-3 text-sm font-semibold text-[var(--text-secondary)]">Started</th>
+                    <th className="text-left py-2 px-3 text-sm font-semibold text-[var(--text-secondary)]">Elapsed</th>
                     <th className="text-left py-2 px-3 text-sm font-semibold text-[var(--text-secondary)]">Stage</th>
                   </tr>
                 </thead>
                 <tbody>
                   {tests.slice(0, 10).map((test) => (
                     <tr key={test.id} className="border-b border-[var(--border-color)] hover:bg-[var(--bg-hover)] transition">
-                      <td className="py-2 px-3 text-sm font-mono text-[var(--text-secondary)]">{test.id.substring(0, 8)}</td>
-                      <td className="py-2 px-3 text-sm text-[var(--text-primary)] truncate max-w-xs">{test.config}</td>
+                      <td className="py-2 px-3 text-sm font-mono text-[var(--text-secondary)]">
+                        {test.id.substring(0, 8)}
+                      </td>
+                      <td className="py-2 px-3 text-sm text-[var(--text-primary)] truncate max-w-xs">
+                        {test.config}
+                      </td>
                       <td className="py-2 px-3">
                         <div className="flex items-center gap-2">
                           <div className="w-24 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
@@ -419,7 +564,9 @@ export default function Home() {
                               style={{ width: `${test.progress || 0}%` }}
                             />
                           </div>
-                          <span className="text-xs font-medium text-[var(--text-secondary)]">{test.progress || 0}%</span>
+                          <span className="text-xs font-medium text-[var(--text-secondary)]">
+                            {test.progress || 0}%
+                          </span>
                         </div>
                       </td>
                       <td className="py-2 px-3">
@@ -436,7 +583,7 @@ export default function Home() {
                         </span>
                       </td>
                       <td className="py-2 px-3 text-sm text-[var(--text-secondary)]">
-                        {new Date(test.startTime).toLocaleTimeString()}
+                        {test.elapsedSeconds ? `${test.elapsedSeconds}s` : '-'}
                       </td>
                       <td className="py-2 px-3 text-sm text-[var(--text-secondary)] truncate max-w-xs">
                         {test.stage || '-'}

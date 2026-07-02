@@ -36,16 +36,19 @@ export async function GET(request: NextRequest) {
     const action = searchParams.get('action');
     const id = searchParams.get('id');
 
+    // ⭐ Get specific test status - THIS IS WHAT THE FRONTEND POLLS
     if (action === 'status' && id) {
       const status = getTestStatus(id);
       if (!status) {
         return NextResponse.json({ error: 'Test not found' }, { status: 404 });
       }
+      // ⭐ Return the full status with progress, stage, metrics, etc.
       return NextResponse.json(status);
     }
 
+    // Terminate test
     if (action === 'terminate' && id) {
-      const success = terminateTest(id);
+      const success = await terminateTest(id);
       if (!success) {
         return NextResponse.json(
           { error: 'Test not found or already completed' },
@@ -55,11 +58,13 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: true, message: 'Test terminated successfully' });
     }
 
+    // List all tests
     if (action === 'list' || !action) {
       const tests = listTests();
       return NextResponse.json(tests);
     }
 
+    // Health check
     return NextResponse.json({
       status: 'ok',
       timestamp: new Date().toISOString(),

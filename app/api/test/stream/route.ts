@@ -2,6 +2,10 @@
 import { NextRequest } from 'next/server';
 import { getTestEmitter, getTestStatus } from '@/lib/k6-runner';
 
+/**
+ * Server-Sent Events endpoint for real-time updates
+ * This pushes live data to the client as it becomes available
+ */
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const testId = searchParams.get('id');
@@ -19,12 +23,13 @@ export async function GET(request: NextRequest) {
   const writer = stream.writable.getWriter();
   const encoder = new TextEncoder();
 
-  // Send initial status
+  // Send initial status immediately
   const initial = getTestStatus(testId);
   if (initial) {
     await writer.write(encoder.encode(`data: ${JSON.stringify(initial)}\n\n`));
   }
 
+  // Event handlers
   const updateHandler = (data: any) => {
     try {
       writer.write(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
@@ -35,7 +40,7 @@ export async function GET(request: NextRequest) {
 
   const completeHandler = (data: any) => {
     try {
-      const { process, dashboardClient, ...clean } = data;
+      const { process, ...clean } = data;
       writer.write(encoder.encode(`data: ${JSON.stringify({ ...clean, complete: true })}\n\n`));
       writer.close();
     } catch (err) {
@@ -43,9 +48,11 @@ export async function GET(request: NextRequest) {
     }
   };
 
+  // Subscribe to events
   emitter.on('update', updateHandler);
   emitter.on('complete', completeHandler);
 
+  // Clean up on client disconnect
   request.signal.addEventListener('abort', () => {
     emitter.off('update', updateHandler);
     emitter.off('complete', completeHandler);

@@ -1,7 +1,11 @@
 // components/TestResults.tsx
 'use client';
 
-export default function TestResults({ results }: any) {
+interface TestResultsProps {
+  results: any;
+}
+
+export default function TestResults({ results }: TestResultsProps) {
   const getStatusColor = (status: string) => {
     const colors: Record<string, string> = {
       completed: 'text-green-600 dark:text-green-400',
@@ -25,23 +29,33 @@ export default function TestResults({ results }: any) {
       <h2 className="text-xl font-semibold text-[var(--text-primary)] mb-6 pb-2 border-b border-[var(--border-color)]">
         📊 Test Results
       </h2>
+
       <div className="grid grid-cols-3 gap-4 mb-6 p-4 bg-gray-50 dark:bg-gray-900/50 rounded-lg">
         <div>
           <div className="text-sm text-[var(--text-secondary)]">Status</div>
-          <div className={`text-lg font-semibold ${getStatusColor(results.status)}`}>{results.status}</div>
+          <div className={`text-lg font-semibold ${getStatusColor(results.status)}`}>
+            {results.status}
+          </div>
         </div>
         <div>
           <div className="text-sm text-[var(--text-secondary)]">Duration</div>
-          <div className="text-lg font-semibold text-[var(--text-primary)]">{formatDuration()}</div>
+          <div className="text-lg font-semibold text-[var(--text-primary)]">
+            {formatDuration()}
+          </div>
         </div>
         <div>
           <div className="text-sm text-[var(--text-secondary)]">Exit Code</div>
-          <div className="text-lg font-semibold text-[var(--text-primary)]">{results.exitCode}</div>
+          <div className="text-lg font-semibold text-[var(--text-primary)]">
+            {results.exitCode}
+          </div>
         </div>
       </div>
+
       {results.metrics && Object.keys(results.metrics).length > 0 && (
         <div className="mb-6">
-          <h3 className="text-sm font-semibold text-[var(--text-secondary)] mb-3">Performance Metrics</h3>
+          <h3 className="text-sm font-semibold text-[var(--text-secondary)] mb-3">
+            Performance Metrics
+          </h3>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             {Object.entries(results.metrics).map(([key, value]: [string, any]) => (
               <div key={key} className="p-3 bg-gray-50 dark:bg-gray-900/50 rounded-lg">
@@ -54,6 +68,7 @@ export default function TestResults({ results }: any) {
           </div>
         </div>
       )}
+
       {results.stdout && (
         <div>
           <h3 className="text-sm font-semibold text-[var(--text-secondary)] mb-2">Output</h3>

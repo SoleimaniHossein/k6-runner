@@ -1,23 +1,37 @@
 // components/RequestForm.tsx
 'use client';
+
 import { useState } from 'react';
 
-export default function RequestForm({ request, onChange }: any) {
-  const [newKey, setNewKey] = useState('');
-  const [newValue, setNewValue] = useState('');
+interface RequestFormProps {
+  request: {
+    method: string;
+    url: string;
+    headers: Record<string, string>;
+    body: string;
+  };
+  onChange: (request: any) => void;
+}
+
+export default function RequestForm({ request, onChange }: RequestFormProps) {
+  const [newHeaderKey, setNewHeaderKey] = useState('');
+  const [newHeaderValue, setNewHeaderValue] = useState('');
 
   const addHeader = () => {
-    if (newKey && newValue) {
-      onChange({ ...request, headers: { ...request.headers, [newKey]: newValue } });
-      setNewKey('');
-      setNewValue('');
+    if (newHeaderKey && newHeaderValue) {
+      onChange({
+        ...request,
+        headers: { ...request.headers, [newHeaderKey]: newHeaderValue },
+      });
+      setNewHeaderKey('');
+      setNewHeaderValue('');
     }
   };
 
   const removeHeader = (key: string) => {
-    const headers = { ...request.headers };
-    delete headers[key];
-    onChange({ ...request, headers });
+    const newHeaders = { ...request.headers };
+    delete newHeaders[key];
+    onChange({ ...request, headers: newHeaders });
   };
 
   return (
@@ -25,19 +39,24 @@ export default function RequestForm({ request, onChange }: any) {
       <h2 className="text-xl font-semibold text-[var(--text-primary)] mb-6 pb-2 border-b border-[var(--border-color)]">
         📝 Request Configuration
       </h2>
+
       <div className="space-y-4">
         <div>
           <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">Method</label>
           <select
             value={request.method}
             onChange={(e) => onChange({ ...request, method: e.target.value })}
-            className="w-full px-3 py-2 border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-primary)] rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+            className="w-full px-3 py-2 border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-primary)] rounded-lg"
           >
-            {['GET','POST','PUT','DELETE','PATCH','HEAD'].map(m => (
-              <option key={m} value={m}>{m}</option>
-            ))}
+            <option value="GET">GET</option>
+            <option value="POST">POST</option>
+            <option value="PUT">PUT</option>
+            <option value="DELETE">DELETE</option>
+            <option value="PATCH">PATCH</option>
+            <option value="HEAD">HEAD</option>
           </select>
         </div>
+
         <div>
           <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">URL</label>
           <input
@@ -45,9 +64,10 @@ export default function RequestForm({ request, onChange }: any) {
             value={request.url}
             onChange={(e) => onChange({ ...request, url: e.target.value })}
             placeholder="https://api.example.com/endpoint"
-            className="w-full px-3 py-2 border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-primary)] rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+            className="w-full px-3 py-2 border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-primary)] rounded-lg"
           />
         </div>
+
         <div>
           <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">Headers</label>
           {Object.entries(request.headers).map(([key, value]) => (
@@ -56,41 +76,56 @@ export default function RequestForm({ request, onChange }: any) {
                 type="text"
                 value={key}
                 onChange={(e) => {
-                  const headers = { ...request.headers };
-                  const old = headers[key];
-                  delete headers[key];
-                  headers[e.target.value] = old;
-                  onChange({ ...request, headers });
+                  const newHeaders = { ...request.headers };
+                  const oldValue = newHeaders[key];
+                  delete newHeaders[key];
+                  newHeaders[e.target.value] = oldValue;
+                  onChange({ ...request, headers: newHeaders });
                 }}
                 className="flex-1 px-3 py-1 border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-primary)] rounded text-sm"
               />
               <input
                 type="text"
                 value={value}
-                onChange={(e) => onChange({ ...request, headers: { ...request.headers, [key]: e.target.value } })}
+                onChange={(e) => {
+                  const newHeaders = { ...request.headers };
+                  newHeaders[key] = e.target.value;
+                  onChange({ ...request, headers: newHeaders });
+                }}
                 className="flex-1 px-3 py-1 border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-primary)] rounded text-sm"
               />
-              <button onClick={() => removeHeader(key)} className="px-2 py-1 bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded hover:bg-red-200">✕</button>
+              <button
+                onClick={() => removeHeader(key)}
+                className="px-2 py-1 bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded hover:bg-red-200"
+              >
+                ✕
+              </button>
             </div>
           ))}
           <div className="flex gap-2">
             <input
               type="text"
-              value={newKey}
-              onChange={(e) => setNewKey(e.target.value)}
+              value={newHeaderKey}
+              onChange={(e) => setNewHeaderKey(e.target.value)}
               placeholder="Header name"
               className="flex-1 px-3 py-1 border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-primary)] rounded text-sm"
             />
             <input
               type="text"
-              value={newValue}
-              onChange={(e) => setNewValue(e.target.value)}
+              value={newHeaderValue}
+              onChange={(e) => setNewHeaderValue(e.target.value)}
               placeholder="Header value"
               className="flex-1 px-3 py-1 border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-primary)] rounded text-sm"
             />
-            <button onClick={addHeader} className="px-3 py-1 bg-purple-600 text-white rounded hover:bg-purple-700">+</button>
+            <button
+              onClick={addHeader}
+              className="px-3 py-1 bg-purple-600 text-white rounded hover:bg-purple-700"
+            >
+              +
+            </button>
           </div>
         </div>
+
         <div>
           <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">Request Body</label>
           <textarea
@@ -98,7 +133,7 @@ export default function RequestForm({ request, onChange }: any) {
             onChange={(e) => onChange({ ...request, body: e.target.value })}
             placeholder='{"key": "value"}'
             rows={4}
-            className="w-full px-3 py-2 border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-primary)] rounded-lg font-mono text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+            className="w-full px-3 py-2 border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-primary)] rounded-lg font-mono text-sm"
           />
         </div>
       </div>
