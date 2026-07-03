@@ -28,10 +28,11 @@ interface TestConfig {
   dashboardPort?: number;
   restAPIPort?: number;
   useRestAPI?: boolean;
-  useInfluxDB: false,
-  influxDBURL: string,
-  influxDBUser: string,
-  influxDBPass: string,
+  useInfluxDB?: boolean;
+  influxDBURL?: string;
+  influxDBUser?: string;
+  influxDBPass?: string;
+  runnerTag?: string;
 }
 
 const STORAGE_KEY = 'k6_test_state';
@@ -40,7 +41,7 @@ export default function Home() {
   const [testConfig, setTestConfig] = useState<TestConfig>({
     request: {
       method: 'GET',
-      url: 'https://httpbin.org/get',
+      url: 'https://httpbin.io/get',
       headers: { 'Content-Type': 'application/json' },
       body: '',
     },
@@ -61,6 +62,7 @@ export default function Home() {
     influxDBURL: 'http://localhost:8086/k6',
     influxDBUser: '',
     influxDBPass: '',
+    runnerTag: 'login-test-001',
   });
 
   // UI State
@@ -78,10 +80,10 @@ export default function Home() {
   const [dashboardUrl, setDashboardUrl] = useState<string | undefined>(undefined);
   const [showDashboard, setShowDashboard] = useState(false);
   const [isTerminating, setIsTerminating] = useState(false);
-  const [showProgress, setShowProgress] = useState(false);
   const [elapsedTime, setElapsedTime] = useState<string>('0s');
   const [remainingTime, setRemainingTime] = useState<string>('0s');
   const [totalTime, setTotalTime] = useState<string>('0s');
+  const [showProgressBar, setShowProgressBar] = useState(false);
 
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const isMounted = useRef(true);
@@ -103,7 +105,6 @@ export default function Home() {
           setCurrentVUs(state.currentVUs || 0);
           setDashboardUrl(state.dashboardUrl);
           setShowDashboard(state.showDashboard || false);
-          setShowProgress(state.showProgress || false);
           setElapsedTime(state.elapsedTime || '0s');
           setRemainingTime(state.remainingTime || '0s');
           setTotalTime(state.totalTime || '0s');
@@ -127,7 +128,6 @@ export default function Home() {
         currentVUs,
         dashboardUrl,
         showDashboard,
-        showProgress,
         elapsedTime,
         remainingTime,
         totalTime,
@@ -147,7 +147,6 @@ export default function Home() {
     currentVUs,
     dashboardUrl,
     showDashboard,
-    showProgress,
     elapsedTime,
     remainingTime,
     totalTime,
@@ -194,7 +193,7 @@ export default function Home() {
     if (data.error) {
       setError(data.error);
       setIsRunning(false);
-      setShowProgress(false);
+      setShowProgressBar(false);
       return;
     }
 
@@ -241,26 +240,16 @@ export default function Home() {
       setDashboardUrl(data.dashboardUrl);
     }
 
-    // Show progress bar when progress data is received
-    if (data.progress !== undefined && data.progress > 0) {
-      setShowProgress(true);
-    }
-
-    // ✅ CRITICAL: Keep isRunning true until completion
-    if (data.status === 'running') {
-      setIsRunning(true);
-    }
-
     // Handle completion
     if (data.complete || data.status === 'completed' || 
         data.status === 'failed' || data.status === 'terminated') {
       console.log('🏁 Test completed:', data.status);
       setIsRunning(false);
+      setShowProgressBar(false);
       setTestResults(data);
       setTestId(null);
       setLiveMetrics({});
       setIsTerminating(false);
-      setShowProgress(false);
 
       if (pollIntervalRef.current) {
         clearInterval(pollIntervalRef.current);
@@ -272,14 +261,12 @@ export default function Home() {
   }, [progress, loadTests]);
 
   /**
-   * POLLING - Fetches data from API every 300ms
+   * POLLING - Fetches data from API every 200ms
    */
   useEffect(() => {
     if (isRunning && testId) {
       console.log('🔌 Setting up POLLING for test:', testId);
       
-      setShowProgress(true);
-
       if (pollIntervalRef.current) {
         clearInterval(pollIntervalRef.current);
       }
@@ -309,7 +296,7 @@ export default function Home() {
         } catch (err) {
           console.error('❌ Polling error:', err);
         }
-      }, 300);
+      }, 200);
 
       return () => {
         console.log('🔌 Cleaning up polling');
@@ -322,20 +309,26 @@ export default function Home() {
   }, [isRunning, testId, updateState]);
 
   /**
-   * Start test
+   * Start test - SHOW PROGRESS BAR IMMEDIATELY
    */
   const runTest = async () => {
     console.log('🚀 Starting test...');
+    
+    // ✅ IMMEDIATELY show progress bar and running state
+    setIsRunning(true);
+    setShowProgressBar(true);
     setLoading(true);
     setError(null);
     setTestResults(null);
     setProgress(0);
-    setStatusMessage('');
+    setStatusMessage('Starting test...');
     setLiveMetrics({});
     setCurrentStage('');
+    setElapsedTime('0s');
+    setRemainingTime('0s');
+    setTotalTime(testConfig.options.duration || '10s');
     
-    setShowProgress(true);
-    
+    // Set dashboard URL immediately
     if (testConfig.useDashboard) {
       const port = testConfig.dashboardPort || 5665;
       const url = `http://localhost:${port}/ui/`;
@@ -344,9 +337,6 @@ export default function Home() {
     
     setShowDashboard(false);
     setIsTerminating(false);
-    setElapsedTime('0s');
-    setRemainingTime('0s');
-    setTotalTime(testConfig.options.duration || '10s');
 
     try {
       const response = await fetch('/api/test', {
@@ -363,19 +353,19 @@ export default function Home() {
       const data = await response.json();
       if (data.success) {
         console.log('✅ Test started:', data.id);
-        setIsRunning(true);
         setTestId(data.id);
-        setStatusMessage('Initializing test...');
-        setShowProgress(true);
+        setStatusMessage('Running...');
         await loadTests();
       } else {
         setError('Failed to start test');
-        setShowProgress(false);
+        setIsRunning(false);
+        setShowProgressBar(false);
       }
     } catch (error: any) {
       console.error('❌ Error starting test:', error);
       setError(error.message || 'Error running test');
-      setShowProgress(false);
+      setIsRunning(false);
+      setShowProgressBar(false);
     } finally {
       setLoading(false);
     }
@@ -390,11 +380,11 @@ export default function Home() {
       const response = await fetch(`/api/test?action=terminate&id=${testId}`);
       if (response.ok) {
         setIsRunning(false);
+        setShowProgressBar(false);
         setTestId(null);
         setLiveMetrics({});
         setShowDashboard(false);
         setStatusMessage('Test terminated');
-        setShowProgress(false);
 
         if (pollIntervalRef.current) {
           clearInterval(pollIntervalRef.current);
@@ -462,6 +452,7 @@ export default function Home() {
             influxDBURL={testConfig.influxDBURL}
             influxDBUser={testConfig.influxDBUser}
             influxDBPass={testConfig.influxDBPass}
+            runnerTag={testConfig.runnerTag}
             onChange={(updates) => setTestConfig({ ...testConfig, ...updates })}
           />
         </div>
@@ -500,8 +491,8 @@ export default function Home() {
           </div>
         )}
 
-        {/* ✅ Progress Bar - Always shows when running */}
-        {isRunning && (
+        {/* ✅ PROGRESS BAR - Shows immediately when test starts */}
+        {showProgressBar && isRunning && (
           <TestProgress
             progress={progress}
             status={statusMessage || 'Running...'}
@@ -532,7 +523,7 @@ export default function Home() {
             )}
           </button>
 
-          {/* ✅ View Dashboard Button - Always shows when dashboard is available */}
+          {/* View Dashboard Button */}
           {dashboardUrl && !showDashboard && (
             <button
               onClick={() => setShowDashboard(true)}
@@ -542,7 +533,7 @@ export default function Home() {
             </button>
           )}
 
-          {/* ✅ Stop Test Button - Always shows when running */}
+          {/* ✅ Stop Test Button - Shows when running */}
           {isRunning && (
             <button
               onClick={terminateTest}

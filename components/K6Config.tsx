@@ -21,6 +21,7 @@ interface K6ConfigProps {
   influxDBURL?: string;
   influxDBUser?: string;
   influxDBPass?: string;
+  runnerTag?: string;
   onChange: (updates: any) => void;
 }
 
@@ -37,13 +38,13 @@ export default function K6Config({
   influxDBURL = '',
   influxDBUser = '',
   influxDBPass = '',
+  runnerTag = '',
   onChange,
 }: K6ConfigProps) {
   const [newEnvKey, setNewEnvKey] = useState('');
   const [newEnvValue, setNewEnvValue] = useState('');
   const [useStages, setUseStages] = useState(!!options.stages);
   const [useThresholds, setUseThresholds] = useState(!!options.thresholds);
-  const [showInfluxDB, setShowInfluxDB] = useState(useInfluxDB);
 
   const addEnv = () => {
     if (newEnvKey && newEnvValue) {
@@ -87,6 +88,21 @@ export default function K6Config({
               className="w-full px-3 py-2 border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-primary)] rounded-lg"
             />
           </div>
+        </div>
+
+        {/* ✅ Runner Tag - NEW */}
+        <div>
+          <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">🏷️ Runner Tag</label>
+          <input
+            type="text"
+            value={runnerTag}
+            onChange={(e) => onChange({ runnerTag: e.target.value })}
+            placeholder="test-runner-001"
+            className="w-full px-3 py-2 border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-primary)] rounded-lg"
+          />
+          <p className="text-xs text-[var(--text-muted)] mt-1">
+            Adds --tag runner_tag=value to k6 command for identifying test runs
+          </p>
         </div>
 
         {/* Web Dashboard Toggle - Purple */}
@@ -176,11 +192,7 @@ export default function K6Config({
                 {useInfluxDB ? 'Enabled' : 'Disabled'}
               </span>
               <button
-                onClick={() => {
-                  const newState = !useInfluxDB;
-                  onChange({ useInfluxDB: newState });
-                  setShowInfluxDB(newState);
-                }}
+                onClick={() => onChange({ useInfluxDB: !useInfluxDB })}
                 className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
                   useInfluxDB ? 'bg-orange-500' : 'bg-gray-300 dark:bg-gray-600'
                 }`}

@@ -34,6 +34,7 @@ export interface TestConfig {
   influxDBURL?: string;
   influxDBUser?: string;
   influxDBPass?: string;
+  runnerTag?: string;
 }
 
 export interface TestInfo {
@@ -458,6 +459,10 @@ export async function runK6Test(config: TestConfig): Promise<TestInfo> {
       const useRestAPI = config.useRestAPI !== false;
       const useInfluxDB = config.useInfluxDB || false;
 
+      // ✅ Add runner tag if provided
+      if (config.runnerTag) {
+        args.push('--tag', `runner_tag=${config.runnerTag}`);
+      }
       // Always output JSON for parsing
       args.push('--out', `json=${resultsPath}`);
 
