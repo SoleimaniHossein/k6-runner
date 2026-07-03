@@ -420,9 +420,12 @@ function processMetricsFromRESTAPI(data: any, info: TestInfo): boolean {
   return changed;
 }
 
-export async function runK6Test(config: TestConfig): Promise<TestInfo> {
+// ✅ FIXED: Accept optional testId parameter for async execution
+export async function runK6Test(config: TestConfig, testId?: string): Promise<TestInfo> {
   return new Promise(async (resolve, reject) => {
-    const testId = uuidv4();
+    // ✅ Use provided testId or generate a new one
+    const finalTestId = testId || uuidv4();
+    console.log(`🏃 Starting test with ID: ${finalTestId}`);
     
     const hasExcelData = config.request.excelData && 
                          config.request.excelData.length > 0 && 
@@ -443,8 +446,8 @@ export async function runK6Test(config: TestConfig): Promise<TestInfo> {
     }
     
     const tempDir = path.join(process.cwd(), 'temp');
-    const scriptPath = path.join(tempDir, `test-${testId}.js`);
-    const resultsPath = path.join(tempDir, `results-${testId}.json`);
+    const scriptPath = path.join(tempDir, `test-${finalTestId}.js`);
+    const resultsPath = path.join(tempDir, `results-${finalTestId}.json`);
 
     try {
       await fs.mkdir(tempDir, { recursive: true });
@@ -459,14 +462,12 @@ export async function runK6Test(config: TestConfig): Promise<TestInfo> {
       const useRestAPI = config.useRestAPI !== false;
       const useInfluxDB = config.useInfluxDB || false;
 
-      // ✅ Add runner tag if provided
       if (config.runnerTag) {
         args.push('--tag', `runner_tag=${config.runnerTag}`);
       }
       // Always output JSON for parsing
       args.push('--out', `json=${resultsPath}`);
 
-      // Add InfluxDB output if enabled
       if (useInfluxDB && config.influxDBURL) {
         let influxURL = config.influxDBURL;
         if (config.influxDBUser && config.influxDBPass) {
@@ -495,7 +496,7 @@ export async function runK6Test(config: TestConfig): Promise<TestInfo> {
         args.push(...config.args.split(' '));
       }
 
-      console.log(`🚀 Running test ${testId}`);
+      console.log(`🚀 Running test ${finalTestId}`);
       console.log(`📋 Command: ${k6Path} ${args.join(' ')}`);
 
       const k6Process = spawn(k6Path, args, {
@@ -505,7 +506,7 @@ export async function runK6Test(config: TestConfig): Promise<TestInfo> {
       });
 
       const emitter = new EventEmitter();
-      testEmitters.set(testId, emitter);
+      testEmitters.set(finalTestId, emitter);
 
       let stdout = '';
       let stderr = '';
@@ -514,39 +515,68 @@ export async function runK6Test(config: TestConfig): Promise<TestInfo> {
 
       const durationSeconds = parseDurationToSeconds(config.options.duration || '30s');
 
-      const info: TestInfo = {
-        id: testId,
-        process: k6Process,
-        scriptPath,
-        resultsPath,
-        stdout: '',
-        stderr: '',
-        status: 'running',
-        progress: 0,
-        startTime: new Date().toISOString(),
-        config,
-        metrics: {},
-        stage: '',
-        currentVUs: 0,
-        dashboardUrl: useDashboard ? `http://localhost:${dashboardPort}/ui/` : undefined,
-        lastUpdate: Date.now(),
-        restAPIPort: restAPIPort,
-        useDashboard: useDashboard,
-        useRestAPI: useRestAPI,
-        useInfluxDB: useInfluxDB,
-        isCompleted: false,
-        elapsedSeconds: 0,
-        remainingSeconds: durationSeconds,
-        totalDurationSeconds: durationSeconds,
-        _lastProgressUpdate: Date.now(),
-        _lastEmittedProgress: -1,
-        _startTimestamp: Date.now(),
-        _durationSeconds: durationSeconds,
-        _lastEmitTime: 0,
-        _testCompleted: false,
-      };
+      // ✅ Check if an info object already exists (from route placeholder)
+      let info = runningTests.get(finalTestId);
+      if (!info) {
+        // Create new info
+        info = {
+          id: finalTestId,
+          process: k6Process,
+          scriptPath,
+          resultsPath,
+          stdout: '',
+          stderr: '',
+          status: 'running',
+          progress: 0,
+          startTime: new Date().toISOString(),
+          config,
+          metrics: {},
+          stage: '',
+          currentVUs: 0,
+          dashboardUrl: useDashboard ? `http://localhost:${dashboardPort}/ui/` : undefined,
+          lastUpdate: Date.now(),
+          restAPIPort: restAPIPort,
+          useDashboard: useDashboard,
+          useRestAPI: useRestAPI,
+          useInfluxDB: useInfluxDB,
+          isCompleted: false,
+          elapsedSeconds: 0,
+          remainingSeconds: durationSeconds,
+          totalDurationSeconds: durationSeconds,
+          _lastProgressUpdate: Date.now(),
+          _lastEmittedProgress: -1,
+          _startTimestamp: Date.now(),
+          _durationSeconds: durationSeconds,
+          _lastEmitTime: 0,
+          _testCompleted: false,
+        };
+      } else {
+        // Update existing info with process details
+        info.process = k6Process;
+        info.scriptPath = scriptPath;
+        info.resultsPath = resultsPath;
+        info.status = 'running';
+        info.startTime = new Date().toISOString();
+        info.config = config;
+        info.dashboardUrl = useDashboard ? `http://localhost:${dashboardPort}/ui/` : undefined;
+        info.restAPIPort = restAPIPort;
+        info.useDashboard = useDashboard;
+        info.useRestAPI = useRestAPI;
+        info.useInfluxDB = useInfluxDB;
+        info.isCompleted = false;
+        info.elapsedSeconds = 0;
+        info.remainingSeconds = durationSeconds;
+        info.totalDurationSeconds = durationSeconds;
+        info._startTimestamp = Date.now();
+        info._durationSeconds = durationSeconds;
+        info._testCompleted = false;
+        info.metrics = {};
+        info.stage = '';
+        info.currentVUs = 0;
+        info.progress = 0;
+      }
 
-      runningTests.set(testId, info);
+      runningTests.set(finalTestId, info);
 
       const calculateProgress = () => {
         const elapsed = (Date.now() - info._startTimestamp) / 1000;
@@ -572,7 +602,7 @@ export async function runK6Test(config: TestConfig): Promise<TestInfo> {
           info._lastEmittedProgress = info.progress;
           lastEmittedTime = now;
           
-          runningTests.set(testId, { ...info });
+          runningTests.set(finalTestId, { ...info });
           
           const { process, ...clean } = info;
           emitter.emit('update', clean);
@@ -593,7 +623,7 @@ export async function runK6Test(config: TestConfig): Promise<TestInfo> {
             if (data) {
               const changed = processMetricsFromRESTAPI(data, info);
               if (changed) {
-                runningTests.set(testId, { ...info });
+                runningTests.set(finalTestId, { ...info });
                 emitUpdate();
               }
             }
@@ -618,7 +648,7 @@ export async function runK6Test(config: TestConfig): Promise<TestInfo> {
           if (line.trim()) {
             const changed = parseK6ConsoleLine(line, info);
             if (changed) {
-              runningTests.set(testId, { ...info });
+              runningTests.set(finalTestId, { ...info });
               emitUpdate(true);
             }
             if (!line.trim().startsWith('{')) {
@@ -637,7 +667,7 @@ export async function runK6Test(config: TestConfig): Promise<TestInfo> {
             if (line.trim().startsWith('{')) {
               const changed = parseK6ConsoleLine(line.trim(), info);
               if (changed) {
-                runningTests.set(testId, { ...info });
+                runningTests.set(finalTestId, { ...info });
                 emitUpdate(true);
               }
             }
@@ -655,12 +685,12 @@ export async function runK6Test(config: TestConfig): Promise<TestInfo> {
           
           if (info.progress === 0 && progress > 0) {
             info.progress = progress;
-            runningTests.set(testId, { ...info });
+            runningTests.set(finalTestId, { ...info });
             emitUpdate(true);
             console.log(`⏰ Time-based progress: ${progress}%`);
           }
           
-          runningTests.set(testId, { ...info });
+          runningTests.set(finalTestId, { ...info });
           emitUpdate();
         } else {
           clearInterval(safetyInterval);
@@ -684,7 +714,7 @@ export async function runK6Test(config: TestConfig): Promise<TestInfo> {
           clearInterval(safetyInterval);
           info._safetyInterval = null;
 
-          runningTests.set(testId, { ...info });
+          runningTests.set(finalTestId, { ...info });
           emitUpdate(true);
           const { process, ...clean } = info;
           emitter.emit('update', { ...clean, complete: true });
@@ -721,7 +751,7 @@ export async function runK6Test(config: TestConfig): Promise<TestInfo> {
           console.error('Cleanup error:', err);
         }
 
-        setTimeout(() => testEmitters.delete(testId), 60000);
+        setTimeout(() => testEmitters.delete(finalTestId), 60000);
         resolve(info);
       });
 
@@ -736,7 +766,7 @@ export async function runK6Test(config: TestConfig): Promise<TestInfo> {
         }
         clearInterval(safetyInterval);
         info._safetyInterval = null;
-        runningTests.set(testId, { ...info });
+        runningTests.set(finalTestId, { ...info });
         emitter.emit('error', err);
         reject(err);
       });
@@ -750,7 +780,9 @@ export async function runK6Test(config: TestConfig): Promise<TestInfo> {
 export function getTestStatus(testId: string): TestInfo | null {
   const test = runningTests.get(testId);
   if (!test) return null;
-  const { process, ...clean } = test;
+  
+  // ✅ Create a clean copy without circular references
+  const { process, _pollInterval, _safetyInterval, ...clean } = test;
   return clean as TestInfo;
 }
 

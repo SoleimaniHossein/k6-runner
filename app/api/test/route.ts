@@ -1,6 +1,7 @@
 // app/api/test/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { runK6Test, getTestStatus, terminateTest, listTests } from '@/lib/k6-runner';
+import { v4 as uuidv4 } from 'uuid';
 
 export async function POST(request: NextRequest) {
   try {
@@ -13,18 +14,26 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const result = await runK6Test(body);
+    // Generate a test ID and start the test asynchronously
+    const testId = uuidv4();
+    console.log(`🚀 Starting test with ID: ${testId}`);
+    
+    // Start the test without awaiting – it runs in the background
+    runK6Test(body, testId).catch(err => {
+      console.error('Test execution error:', err);
+    });
 
+    // Immediately return the test ID to the frontend
     return NextResponse.json({
       success: true,
-      id: result.id,
-      status: result.status,
-      progress: result.progress,
+      id: testId,
+      status: 'running',
+      progress: 0,
     });
   } catch (error: any) {
-    console.error('Error running test:', error);
+    console.error('Error starting test:', error);
     return NextResponse.json(
-      { error: 'Failed to run test', message: error.message },
+      { error: 'Failed to start test', message: error.message },
       { status: 500 }
     );
   }
@@ -36,18 +45,25 @@ export async function GET(request: NextRequest) {
     const action = searchParams.get('action');
     const id = searchParams.get('id');
 
-    // ⭐ Get specific test status - THIS IS WHAT THE FRONTEND POLLS
+    console.log(`📡 GET /api/test: action=${action}, id=${id}`);
+
     if (action === 'status' && id) {
       const status = getTestStatus(id);
       if (!status) {
+        console.log(`❌ Test ${id} not found`);
         return NextResponse.json({ error: 'Test not found' }, { status: 404 });
       }
-      // ⭐ Return the full status with progress, stage, metrics, etc.
-      return NextResponse.json(status);
+      
+      console.log(`📊 Status for ${id}: progress=${status.progress}, status=${status.status}`);
+      
+      // ✅ Remove circular references (process, _pollInterval, _safetyInterval)
+      const { process, _pollInterval, _safetyInterval, ...cleanStatus } = status;
+      
+      return NextResponse.json(cleanStatus);
     }
 
-    // Terminate test
     if (action === 'terminate' && id) {
+      console.log(`🛑 Terminating test ${id}`);
       const success = await terminateTest(id);
       if (!success) {
         return NextResponse.json(
@@ -58,13 +74,12 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: true, message: 'Test terminated successfully' });
     }
 
-    // List all tests
     if (action === 'list' || !action) {
       const tests = listTests();
+      console.log(`📋 Listing ${tests.length} tests`);
       return NextResponse.json(tests);
     }
 
-    // Health check
     return NextResponse.json({
       status: 'ok',
       timestamp: new Date().toISOString(),

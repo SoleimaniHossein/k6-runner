@@ -83,7 +83,7 @@ export default function Home() {
   const [elapsedTime, setElapsedTime] = useState<string>('0s');
   const [remainingTime, setRemainingTime] = useState<string>('0s');
   const [totalTime, setTotalTime] = useState<string>('0s');
-  const [showProgressBar, setShowProgressBar] = useState(false);
+  const [pollingCount, setPollingCount] = useState(0);
 
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const isMounted = useRef(true);
@@ -193,14 +193,14 @@ export default function Home() {
     if (data.error) {
       setError(data.error);
       setIsRunning(false);
-      setShowProgressBar(false);
+      setTestId(null);
       return;
     }
 
-    // UPDATE PROGRESS
-    if (data.progress !== undefined && data.progress !== progress) {
+    // Update progress
+    if (data.progress !== undefined) {
       setProgress(data.progress);
-      console.log(`📈 UI Progress set to: ${data.progress}%`);
+      console.log(`✅ UI Progress set to: ${data.progress}%`);
     }
 
     if (data.stage) {
@@ -240,12 +240,16 @@ export default function Home() {
       setDashboardUrl(data.dashboardUrl);
     }
 
+    // ✅ Keep isRunning true if status is running
+    if (data.status === 'running') {
+      setIsRunning(true);
+    }
+
     // Handle completion
     if (data.complete || data.status === 'completed' || 
         data.status === 'failed' || data.status === 'terminated') {
       console.log('🏁 Test completed:', data.status);
       setIsRunning(false);
-      setShowProgressBar(false);
       setTestResults(data);
       setTestId(null);
       setLiveMetrics({});
@@ -258,65 +262,65 @@ export default function Home() {
 
       loadTests();
     }
-  }, [progress, loadTests]);
+  }, [loadTests]);
 
   /**
    * POLLING - Fetches data from API every 200ms
    */
   useEffect(() => {
-    if (isRunning && testId) {
-      console.log('🔌 Setting up POLLING for test:', testId);
-      
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current);
-      }
+    if (!isRunning || !testId) {
+      console.log('⏸️ Polling not started (isRunning or testId missing).', { isRunning, testId });
+      return;
+    }
 
-      pollIntervalRef.current = setInterval(async () => {
-        try {
-          const res = await fetch(`/api/test?action=status&id=${testId}`);
-          
-          if (!res.ok) {
-            if (res.status === 404) {
-              return;
-            }
+    console.log(`🔌 POLLING STARTED for test: ${testId}`);
+    setPollingCount(0);
+    
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+    }
+
+    pollIntervalRef.current = setInterval(async () => {
+      try {
+        setPollingCount(prev => prev + 1);
+        const res = await fetch(`/api/test?action=status&id=${testId}`);
+        
+        if (!res.ok) {
+          if (res.status === 404) {
+            console.warn(`⚠️ Test ${testId} not found, stopping polling.`);
+            clearInterval(pollIntervalRef.current!);
+            pollIntervalRef.current = null;
             return;
           }
-          
-          const data = await res.json();
-          
-          if (updateCounterRef.current % 10 === 0) {
-            console.log(`📊 Polling result:`, {
-              progress: data.progress,
-              status: data.status,
-              stage: data.stage,
-            });
-          }
-          
-          updateState(data);
-        } catch (err) {
-          console.error('❌ Polling error:', err);
+          console.warn(`⚠️ Polling response not OK: ${res.status}`);
+          return;
         }
-      }, 200);
+        
+        const data = await res.json();
+        console.log(`📊 Poll #${pollingCount + 1}: progress=${data.progress}, status=${data.status}`);
+        updateState(data);
+      } catch (err) {
+        console.error('❌ Polling error:', err);
+      }
+    }, 200);
 
-      return () => {
-        console.log('🔌 Cleaning up polling');
-        if (pollIntervalRef.current) {
-          clearInterval(pollIntervalRef.current);
-          pollIntervalRef.current = null;
-        }
-      };
-    }
-  }, [isRunning, testId, updateState]);
+    return () => {
+      console.log(`🔌 POLLING STOPPED for test: ${testId}`);
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+    };
+  }, [isRunning, testId, updateState, pollingCount]);
 
   /**
-   * Start test - SHOW PROGRESS BAR IMMEDIATELY
+   * Start test
    */
   const runTest = async () => {
     console.log('🚀 Starting test...');
     
-    // ✅ IMMEDIATELY show progress bar and running state
+    // Immediate UI feedback
     setIsRunning(true);
-    setShowProgressBar(true);
     setLoading(true);
     setError(null);
     setTestResults(null);
@@ -327,8 +331,9 @@ export default function Home() {
     setElapsedTime('0s');
     setRemainingTime('0s');
     setTotalTime(testConfig.options.duration || '10s');
+    setPollingCount(0);
     
-    // Set dashboard URL immediately
+    // Dashboard URL
     if (testConfig.useDashboard) {
       const port = testConfig.dashboardPort || 5665;
       const url = `http://localhost:${port}/ui/`;
@@ -351,36 +356,40 @@ export default function Home() {
       }
 
       const data = await response.json();
-      if (data.success) {
-        console.log('✅ Test started:', data.id);
+      if (data.success && data.id) {
+        console.log(`✅ Test started with ID: ${data.id}`);
         setTestId(data.id);
         setStatusMessage('Running...');
         await loadTests();
       } else {
         setError('Failed to start test');
         setIsRunning(false);
-        setShowProgressBar(false);
+        setTestId(null);
       }
     } catch (error: any) {
       console.error('❌ Error starting test:', error);
       setError(error.message || 'Error running test');
       setIsRunning(false);
-      setShowProgressBar(false);
+      setTestId(null);
     } finally {
       setLoading(false);
     }
   };
 
   const terminateTest = async () => {
-    if (!testId || isTerminating) return;
+    if (!testId || isTerminating) {
+      console.log('⚠️ Cannot terminate: no testId or already terminating');
+      return;
+    }
     setIsTerminating(true);
 
     try {
-      console.log('🛑 Terminating test:', testId);
+      console.log(`🛑 Terminating test: ${testId}`);
       const response = await fetch(`/api/test?action=terminate&id=${testId}`);
+      
       if (response.ok) {
+        console.log(`✅ Test ${testId} terminated successfully`);
         setIsRunning(false);
-        setShowProgressBar(false);
         setTestId(null);
         setLiveMetrics({});
         setShowDashboard(false);
@@ -392,8 +401,12 @@ export default function Home() {
         }
 
         await loadTests();
+      } else {
+        const err = await response.json();
+        setError(`Terminate failed: ${err.error || 'Unknown error'}`);
       }
     } catch (error) {
+      console.error('❌ Terminate error:', error);
       setError('Failed to terminate test');
     } finally {
       setIsTerminating(false);
@@ -491,9 +504,10 @@ export default function Home() {
           </div>
         )}
 
-        {/* ✅ PROGRESS BAR - Shows immediately when test starts */}
-        {showProgressBar && isRunning && (
+        {/* Progress Bar */}
+        {isRunning && (
           <TestProgress
+            key={progress}
             progress={progress}
             status={statusMessage || 'Running...'}
             onTerminate={terminateTest}
@@ -505,6 +519,15 @@ export default function Home() {
             remainingTime={remainingTime}
             totalTime={totalTime}
           />
+        )}
+
+        {/* Debug panel */}
+        {isRunning && (
+          <div className="mb-4 p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-400 dark:border-yellow-600 rounded text-center text-sm">
+            <span className="font-mono">
+              Debug: Progress = {progress}% &nbsp;|&nbsp; Test ID: {testId || 'null'} &nbsp;|&nbsp; Polling updates: {pollingCount}
+            </span>
+          </div>
         )}
 
         {/* Action buttons */}
@@ -523,7 +546,6 @@ export default function Home() {
             )}
           </button>
 
-          {/* View Dashboard Button */}
           {dashboardUrl && !showDashboard && (
             <button
               onClick={() => setShowDashboard(true)}
@@ -533,7 +555,6 @@ export default function Home() {
             </button>
           )}
 
-          {/* ✅ Stop Test Button - Shows when running */}
           {isRunning && (
             <button
               onClick={terminateTest}

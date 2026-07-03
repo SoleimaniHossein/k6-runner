@@ -423,7 +423,7 @@ export default function RequestForm({ request, onChange }: RequestFormProps) {
             value={request.body}
             onChange={(e) => onChange({ ...request, body: e.target.value })}
             placeholder='{"key": "{{column_name}}", "value": "{{another_column}}"}'
-            rows={6}
+            rows={20}
             className="w-full px-3 py-2 border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-primary)] rounded-lg font-mono text-sm"
             spellCheck={false}
           />
