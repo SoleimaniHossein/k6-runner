@@ -1,13 +1,15 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // ✅ Correct for Next.js 16 - serverExternalPackages
   serverExternalPackages: ['ws', 'uuid'],
+  turbopack: {},
+  allowedDevOrigins: [
+    'localhost',
+    '127.0.0.1',
+    '0.0.0.0',
+    '192.168.15.*'
+  ],
   
-  // ✅ Turbopack configuration (Next.js 16 uses Turbopack by default)
-  turbopack: {
-    // Empty object to acknowledge turbopack usage
-  },
 };
 
 export default nextConfig;

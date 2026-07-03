@@ -30,6 +30,10 @@ export interface TestConfig {
   dashboardPort?: number;
   restAPIPort?: number;
   useRestAPI?: boolean;
+  useInfluxDB?: boolean;
+  influxDBURL?: string;
+  influxDBUser?: string;
+  influxDBPass?: string;
 }
 
 export interface TestInfo {
@@ -55,6 +59,7 @@ export interface TestInfo {
   restAPIPort: number;
   useDashboard: boolean;
   useRestAPI: boolean;
+  useInfluxDB: boolean;
   isCompleted: boolean;
   elapsedSeconds?: number;
   remainingSeconds?: number;
@@ -65,14 +70,13 @@ export interface TestInfo {
   _lastEmittedProgress?: number;
   _startTimestamp: number;
   _durationSeconds: number;
+  _lastEmitTime: number;
+  _testCompleted: boolean;
 }
 
 const runningTests = new Map<string, TestInfo>();
 const testEmitters = new Map<string, EventEmitter>();
 
-/**
- * Generate k6 script
- */
 function generateScript(config: TestConfig): string {
   const { request, options = {}, env = {} } = config;
 
@@ -267,14 +271,9 @@ function parseDurationToSeconds(duration: string): number {
   }
 }
 
-/**
- * Parse k6 console output and JSON progress
- */
 function parseK6ConsoleLine(line: string, info: TestInfo): boolean {
   let changed = false;
-  let progressMatch: RegExpMatchArray | null = null;
 
-  // Try to parse JSON progress from our custom logs (most reliable)
   if (line.trim().startsWith('{')) {
     try {
       const data = JSON.parse(line);
@@ -283,12 +282,15 @@ function parseK6ConsoleLine(line: string, info: TestInfo): boolean {
           info.progress = data.percent;
           info._lastProgressUpdate = Date.now();
           changed = true;
-          console.log(`📈 Progress from exec.scenario.progress: ${data.percent}%`);
+          console.log(`📈 Progress from JSON: ${data.percent}%`);
         }
         if (data.vu !== undefined && data.vu !== info.currentVUs) {
           info.currentVUs = data.vu;
           info.metrics.vus = data.vu;
           changed = true;
+        }
+        if (changed) {
+          info._lastEmitTime = 0;
         }
         return changed;
       }
@@ -318,13 +320,13 @@ function parseK6ConsoleLine(line: string, info: TestInfo): boolean {
         return changed;
       }
     } catch (e) {
-      // Not JSON, continue to console parsing
+      // Not JSON
     }
   }
 
-  // Fallback: Parse "default [  10% ] 1 VUs  01.0s/10s" format
+  // Parse "default [  10% ] 1 VUs  01.0s/10s"
   const k6ProgressRegex = /default\s*\[\s*(\d+)%\s*\]\s*(\d+)\s*VUs?\s*([\d.]+s)\/([\d.]+s)/i;
-  progressMatch = line.match(k6ProgressRegex);
+  const progressMatch = line.match(k6ProgressRegex);
   
   if (progressMatch) {
     const percent = parseInt(progressMatch[1]);
@@ -352,9 +354,6 @@ function parseK6ConsoleLine(line: string, info: TestInfo): boolean {
   return changed;
 }
 
-/**
- * Fetch metrics from k6 REST API
- */
 async function fetchMetricsFromRESTAPI(port: number): Promise<any> {
   try {
     const response = await fetch(`http://localhost:${port}/v1/metrics`);
@@ -457,9 +456,23 @@ export async function runK6Test(config: TestConfig): Promise<TestInfo> {
       const dashboardPort = config.dashboardPort || 5665;
       const restAPIPort = config.restAPIPort || 6565;
       const useRestAPI = config.useRestAPI !== false;
+      const useInfluxDB = config.useInfluxDB || false;
 
       // Always output JSON for parsing
       args.push('--out', `json=${resultsPath}`);
+
+      // Add InfluxDB output if enabled
+      if (useInfluxDB && config.influxDBURL) {
+        let influxURL = config.influxDBURL;
+        if (config.influxDBUser && config.influxDBPass) {
+          const urlObj = new URL(influxURL);
+          urlObj.username = config.influxDBUser;
+          urlObj.password = config.influxDBPass;
+          influxURL = urlObj.toString();
+        }
+        args.push('--out', `influxdb=${influxURL}`);
+        console.log(`📊 InfluxDB output enabled: ${influxURL}`);
+      }
 
       const env = {
         ...process.env,
@@ -515,6 +528,7 @@ export async function runK6Test(config: TestConfig): Promise<TestInfo> {
         restAPIPort: restAPIPort,
         useDashboard: useDashboard,
         useRestAPI: useRestAPI,
+        useInfluxDB: useInfluxDB,
         isCompleted: false,
         elapsedSeconds: 0,
         remainingSeconds: durationSeconds,
@@ -523,37 +537,33 @@ export async function runK6Test(config: TestConfig): Promise<TestInfo> {
         _lastEmittedProgress: -1,
         _startTimestamp: Date.now(),
         _durationSeconds: durationSeconds,
+        _lastEmitTime: 0,
+        _testCompleted: false,
       };
 
       runningTests.set(testId, info);
 
-      /**
-       * Calculate progress based on elapsed time (fallback)
-       */
       const calculateProgress = () => {
         const elapsed = (Date.now() - info._startTimestamp) / 1000;
         const progress = Math.min(100, Math.round((elapsed / durationSeconds) * 100));
         return { elapsed, progress };
       };
 
-      /**
-       * EMIT UPDATE - Sends data to frontend
-       */
       const emitUpdate = (force = false) => {
         const now = Date.now();
-        if (!force && now - info.lastUpdate < 100) return;
-        info.lastUpdate = now;
-
+        
+        if (!force && now - info._lastEmitTime < 100) return;
+        info._lastEmitTime = now;
+        
         const { elapsed, progress } = calculateProgress();
         info.elapsedSeconds = Math.round(elapsed);
         info.remainingSeconds = Math.max(0, durationSeconds - Math.round(elapsed));
         
-        // Only update progress if it hasn't been set by k6 console output
         if (info.progress === 0 && progress > 0) {
           info.progress = progress;
         }
 
-        if (force || info.progress !== info._lastEmittedProgress || now - lastEmittedTime > 300) {
+        if (force || info.progress !== info._lastEmittedProgress || now - lastEmittedTime > 200) {
           info._lastEmittedProgress = info.progress;
           lastEmittedTime = now;
           
@@ -561,16 +571,15 @@ export async function runK6Test(config: TestConfig): Promise<TestInfo> {
           
           const { process, ...clean } = info;
           emitter.emit('update', clean);
+          console.log(`📤 Emitted: progress=${info.progress}%, status=${info.status}`);
         }
       };
 
-      // EMIT INITIAL UPDATE
       setTimeout(() => {
         emitUpdate(true);
         console.log('📤 Initial update sent');
-      }, 100);
+      }, 50);
 
-      // REST API Polling for metrics if enabled
       let pollInterval: NodeJS.Timeout | null = null;
       if (useRestAPI) {
         pollInterval = setInterval(async () => {
@@ -586,12 +595,11 @@ export async function runK6Test(config: TestConfig): Promise<TestInfo> {
           } catch (error) {
             // Silent fail
           }
-        }, 300);
+        }, 200);
         info._pollInterval = pollInterval;
         console.log(`🔌 REST API polling enabled on port ${restAPIPort}`);
       }
 
-      // Process stdout - parse k6 console output and JSON
       let buffer = '';
       k6Process.stdout.on('data', (data) => {
         const chunk = data.toString();
@@ -606,7 +614,7 @@ export async function runK6Test(config: TestConfig): Promise<TestInfo> {
             const changed = parseK6ConsoleLine(line, info);
             if (changed) {
               runningTests.set(testId, { ...info });
-              emitUpdate();
+              emitUpdate(true);
             }
             if (!line.trim().startsWith('{')) {
               console.log(`[k6] ${line.trim()}`);
@@ -618,12 +626,24 @@ export async function runK6Test(config: TestConfig): Promise<TestInfo> {
       k6Process.stderr.on('data', (data) => {
         const chunk = data.toString();
         stderr += chunk;
-        console.error(`[k6 stderr] ${chunk.trim()}`);
+        if (chunk.trim().startsWith('{')) {
+          const lines = chunk.split('\n');
+          for (const line of lines) {
+            if (line.trim().startsWith('{')) {
+              const changed = parseK6ConsoleLine(line.trim(), info);
+              if (changed) {
+                runningTests.set(testId, { ...info });
+                emitUpdate(true);
+              }
+            }
+          }
+        } else {
+          console.error(`[k6 stderr] ${chunk.trim()}`);
+        }
       });
 
-      // Safety interval - emit every second as fallback
       const safetyInterval = setInterval(() => {
-        if (info.status === 'running') {
+        if (info.status === 'running' && !info._testCompleted) {
           const { elapsed, progress } = calculateProgress();
           info.elapsedSeconds = Math.round(elapsed);
           info.remainingSeconds = Math.max(0, durationSeconds - Math.round(elapsed));
@@ -640,10 +660,9 @@ export async function runK6Test(config: TestConfig): Promise<TestInfo> {
         } else {
           clearInterval(safetyInterval);
         }
-      }, 1000);
+      }, 200);
       info._safetyInterval = safetyInterval;
 
-      // Handle process exit
       k6Process.on('close', async (code) => {
         if (info.status === 'running') {
           info.status = code === 0 ? 'completed' : 'failed';
@@ -651,6 +670,7 @@ export async function runK6Test(config: TestConfig): Promise<TestInfo> {
           info.progress = 100;
           info.isCompleted = true;
           info.remainingSeconds = 0;
+          info._testCompleted = true;
 
           if (pollInterval) {
             clearInterval(pollInterval);
@@ -704,6 +724,7 @@ export async function runK6Test(config: TestConfig): Promise<TestInfo> {
         info.status = 'error';
         info.error = err.message;
         info.isCompleted = true;
+        info._testCompleted = true;
         if (pollInterval) {
           clearInterval(pollInterval);
           info._pollInterval = null;
@@ -742,7 +763,6 @@ export async function terminateTest(testId: string): Promise<boolean> {
   console.log(`🛑 Terminating test ${testId}`);
   const restAPIPort = info.restAPIPort || 6565;
 
-  // Try REST API termination
   if (info.useRestAPI !== false) {
     try {
       console.log(`🔄 Trying REST API termination on port ${restAPIPort}`);
@@ -766,6 +786,7 @@ export async function terminateTest(testId: string): Promise<boolean> {
         info.progress = 100;
         info.isCompleted = true;
         info.remainingSeconds = 0;
+        info._testCompleted = true;
 
         if (info._pollInterval) {
           clearInterval(info._pollInterval);
@@ -791,7 +812,6 @@ export async function terminateTest(testId: string): Promise<boolean> {
     }
   }
 
-  // Fallback to SIGTERM
   if (info.process) {
     console.log(`🔄 Sending SIGTERM to process ${info.process.pid}`);
     info.process.kill('SIGTERM');
@@ -807,6 +827,7 @@ export async function terminateTest(testId: string): Promise<boolean> {
     info.progress = 100;
     info.isCompleted = true;
     info.remainingSeconds = 0;
+    info._testCompleted = true;
 
     if (info._pollInterval) {
       clearInterval(info._pollInterval);

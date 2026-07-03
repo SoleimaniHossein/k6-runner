@@ -28,6 +28,10 @@ interface TestConfig {
   dashboardPort?: number;
   restAPIPort?: number;
   useRestAPI?: boolean;
+  useInfluxDB: false,
+  influxDBURL: string,
+  influxDBUser: string,
+  influxDBPass: string,
 }
 
 const STORAGE_KEY = 'k6_test_state';
@@ -53,6 +57,10 @@ export default function Home() {
     dashboardPort: 5665,
     restAPIPort: 6565,
     useRestAPI: true,
+    useInfluxDB: false,
+    influxDBURL: 'http://localhost:8086/k6',
+    influxDBUser: '',
+    influxDBPass: '',
   });
 
   // UI State
@@ -450,6 +458,10 @@ export default function Home() {
             dashboardPort={testConfig.dashboardPort}
             restAPIPort={testConfig.restAPIPort}
             useRestAPI={testConfig.useRestAPI}
+            useInfluxDB={testConfig.useInfluxDB}
+            influxDBURL={testConfig.influxDBURL}
+            influxDBUser={testConfig.influxDBUser}
+            influxDBPass={testConfig.influxDBPass}
             onChange={(updates) => setTestConfig({ ...testConfig, ...updates })}
           />
         </div>
