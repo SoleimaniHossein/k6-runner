@@ -27,6 +27,7 @@ interface TestConfig {
   useDashboard?: boolean;
   dashboardPort?: number;
   restAPIPort?: number;
+  useRestAPI?: boolean;
 }
 
 const STORAGE_KEY = 'k6_test_state';
@@ -51,6 +52,7 @@ export default function Home() {
     useDashboard: true,
     dashboardPort: 5665,
     restAPIPort: 6565,
+    useRestAPI: true,
   });
 
   // UI State
@@ -161,11 +163,15 @@ export default function Home() {
     loadTests();
     return () => {
       isMounted.current = false;
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
     };
   }, [loadTests]);
 
   /**
-   * Central update function - THIS IS WHERE UI UPDATES HAPPEN
+   * Central update function
    */
   const updateState = useCallback((data: any) => {
     if (!isMounted.current) return;
@@ -184,8 +190,8 @@ export default function Home() {
       return;
     }
 
-    // ⭐ UPDATE PROGRESS - THIS IS CRITICAL FOR UI
-    if (data.progress !== undefined) {
+    // UPDATE PROGRESS
+    if (data.progress !== undefined && data.progress !== progress) {
       setProgress(data.progress);
       console.log(`📈 UI Progress set to: ${data.progress}%`);
     }
@@ -217,17 +223,24 @@ export default function Home() {
       setRemainingTime(mins > 0 ? `${mins}m${secs}s` : `${secs}s`);
     }
 
-    if (data.totalTime) {
-      setTotalTime(data.totalTime);
+    if (data.totalDurationSeconds !== undefined) {
+      const mins = Math.floor(data.totalDurationSeconds / 60);
+      const secs = data.totalDurationSeconds % 60;
+      setTotalTime(mins > 0 ? `${mins}m${secs}s` : `${secs}s`);
     }
 
     if (data.dashboardUrl) {
       setDashboardUrl(data.dashboardUrl);
     }
 
-    // ⭐ CRITICAL: Show progress bar when ANY progress data is received
-    if (data.progress !== undefined) {
+    // Show progress bar when progress data is received
+    if (data.progress !== undefined && data.progress > 0) {
       setShowProgress(true);
+    }
+
+    // ✅ CRITICAL: Keep isRunning true until completion
+    if (data.status === 'running') {
+      setIsRunning(true);
     }
 
     // Handle completion
@@ -248,46 +261,42 @@ export default function Home() {
 
       loadTests();
     }
-  }, [loadTests]);
+  }, [progress, loadTests]);
 
   /**
-   * ⭐ POLLING - Fetches data from API every 300ms
+   * POLLING - Fetches data from API every 300ms
    */
   useEffect(() => {
     if (isRunning && testId) {
       console.log('🔌 Setting up POLLING for test:', testId);
       
-      // ⭐ CRITICAL: Show progress bar immediately
       setShowProgress(true);
 
-      // Clear any existing interval
       if (pollIntervalRef.current) {
         clearInterval(pollIntervalRef.current);
       }
 
-      // ⭐ Poll every 300ms for real-time updates
       pollIntervalRef.current = setInterval(async () => {
         try {
-          console.log(`📡 Polling #${updateCounterRef.current + 1}...`);
           const res = await fetch(`/api/test?action=status&id=${testId}`);
           
           if (!res.ok) {
-            console.warn(`⚠️ Polling failed: ${res.status}`);
             if (res.status === 404) {
-              // Test might have been cleaned up
               return;
             }
             return;
           }
           
           const data = await res.json();
-          console.log(`📊 Polling result:`, {
-            progress: data.progress,
-            status: data.status,
-            stage: data.stage,
-          });
           
-          // ⭐ Call updateState with the data
+          if (updateCounterRef.current % 10 === 0) {
+            console.log(`📊 Polling result:`, {
+              progress: data.progress,
+              status: data.status,
+              stage: data.stage,
+            });
+          }
+          
           updateState(data);
         } catch (err) {
           console.error('❌ Polling error:', err);
@@ -305,7 +314,7 @@ export default function Home() {
   }, [isRunning, testId, updateState]);
 
   /**
-   * Start test - immediately shows all components
+   * Start test
    */
   const runTest = async () => {
     console.log('🚀 Starting test...');
@@ -317,15 +326,11 @@ export default function Home() {
     setLiveMetrics({});
     setCurrentStage('');
     
-    // ⭐ IMMEDIATELY SHOW PROGRESS BAR
     setShowProgress(true);
-    console.log('✅ Progress bar shown');
     
-    // ⭐ IMMEDIATELY SET DASHBOARD URL FROM CONFIG
     if (testConfig.useDashboard) {
       const port = testConfig.dashboardPort || 5665;
       const url = `http://localhost:${port}/ui/`;
-      console.log('📍 Dashboard URL set from config:', url);
       setDashboardUrl(url);
     }
     
@@ -333,6 +338,7 @@ export default function Home() {
     setIsTerminating(false);
     setElapsedTime('0s');
     setRemainingTime('0s');
+    setTotalTime(testConfig.options.duration || '10s');
 
     try {
       const response = await fetch('/api/test', {
@@ -352,10 +358,7 @@ export default function Home() {
         setIsRunning(true);
         setTestId(data.id);
         setStatusMessage('Initializing test...');
-        
-        // ⭐ Ensure progress bar is shown
         setShowProgress(true);
-        
         await loadTests();
       } else {
         setError('Failed to start test');
@@ -399,6 +402,13 @@ export default function Home() {
     }
   };
 
+  const formatTime = (seconds: number) => {
+    if (!seconds || seconds < 0) return '0s';
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return mins > 0 ? `${mins}m${secs}s` : `${secs}s`;
+  };
+
   return (
     <main className="min-h-screen bg-[var(--bg-primary)] text-[var(--text-primary)] transition-colors duration-300">
       <header className="bg-gradient-to-r from-[var(--gradient-start)] to-[var(--gradient-end)] text-white shadow-lg">
@@ -407,6 +417,11 @@ export default function Home() {
             <div className="flex items-center gap-3">
               <span className="text-3xl">🚀</span>
               <h1 className="text-3xl font-bold">K6 Test Runner</h1>
+              {isRunning && (
+                <span className="ml-3 px-3 py-1 bg-white/20 rounded-full text-sm animate-pulse">
+                  ⏳ Running
+                </span>
+              )}
             </div>
             <ThemeToggle />
           </div>
@@ -434,6 +449,7 @@ export default function Home() {
             useDashboard={testConfig.useDashboard}
             dashboardPort={testConfig.dashboardPort}
             restAPIPort={testConfig.restAPIPort}
+            useRestAPI={testConfig.useRestAPI}
             onChange={(updates) => setTestConfig({ ...testConfig, ...updates })}
           />
         </div>
@@ -472,11 +488,11 @@ export default function Home() {
           </div>
         )}
 
-        {/* ⭐ Progress Bar - shows immediately when test starts */}
-        {showProgress && isRunning && (
+        {/* ✅ Progress Bar - Always shows when running */}
+        {isRunning && (
           <TestProgress
             progress={progress}
-            status={statusMessage}
+            status={statusMessage || 'Running...'}
             onTerminate={terminateTest}
             metrics={liveMetrics}
             stage={currentStage}
@@ -488,7 +504,7 @@ export default function Home() {
           />
         )}
 
-        {/* ⭐ Three action buttons */}
+        {/* Action buttons */}
         <div className="flex gap-4 mb-8 flex-wrap">
           <button
             onClick={runTest}
@@ -504,7 +520,7 @@ export default function Home() {
             )}
           </button>
 
-          {/* ⭐ View Dashboard Button */}
+          {/* ✅ View Dashboard Button - Always shows when dashboard is available */}
           {dashboardUrl && !showDashboard && (
             <button
               onClick={() => setShowDashboard(true)}
@@ -514,7 +530,7 @@ export default function Home() {
             </button>
           )}
 
-          {/* ⭐ Stop Test Button */}
+          {/* ✅ Stop Test Button - Always shows when running */}
           {isRunning && (
             <button
               onClick={terminateTest}
@@ -583,7 +599,7 @@ export default function Home() {
                         </span>
                       </td>
                       <td className="py-2 px-3 text-sm text-[var(--text-secondary)]">
-                        {test.elapsedSeconds ? `${test.elapsedSeconds}s` : '-'}
+                        {test.elapsedSeconds ? formatTime(test.elapsedSeconds) : '-'}
                       </td>
                       <td className="py-2 px-3 text-sm text-[var(--text-secondary)] truncate max-w-xs">
                         {test.stage || '-'}

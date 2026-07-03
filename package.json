@@ -15,7 +15,8 @@
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "uuid": "^14.0.1",
-    "ws": "^8.21.0"
+    "ws": "^8.21.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
@@ -24,6 +25,7 @@
     "@types/react-dom": "^19",
     "@types/uuid": "^10.0.0",
     "@types/ws": "^8.18.1",
+    "@types/xlsx": "^0.0.36",
     "eslint": "^9",
     "eslint-config-next": "16.2.9",
     "tailwindcss": "^4",

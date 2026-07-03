@@ -1,7 +1,7 @@
-// components/RequestForm.tsx
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
+import * as XLSX from 'xlsx';
 
 interface RequestFormProps {
   request: {
@@ -9,29 +9,155 @@ interface RequestFormProps {
     url: string;
     headers: Record<string, string>;
     body: string;
+    useExcelLoop?: boolean;
+    excelData?: any[];
+    selectedExcelColumns?: string[];
   };
   onChange: (request: any) => void;
 }
 
 export default function RequestForm({ request, onChange }: RequestFormProps) {
-  const [newHeaderKey, setNewHeaderKey] = useState('');
-  const [newHeaderValue, setNewHeaderValue] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
+  const [excelColumns, setExcelColumns] = useState<string[]>([]);
+  const [showExcelOptions, setShowExcelOptions] = useState(false);
 
-  const addHeader = () => {
-    if (newHeaderKey && newHeaderValue) {
-      onChange({
-        ...request,
-        headers: { ...request.headers, [newHeaderKey]: newHeaderValue },
-      });
-      setNewHeaderKey('');
-      setNewHeaderValue('');
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setUploadError(null);
+    setUploadSuccess(null);
+
+    const fileExtension = file.name.split('.').pop()?.toLowerCase();
+
+    if (fileExtension === 'json') {
+      handleJSONUpload(file);
+    } else if (fileExtension === 'xlsx' || fileExtension === 'xls') {
+      handleExcelUpload(file);
+    } else {
+      setUploadError('Please upload a .json, .xlsx, or .xls file');
+    }
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
     }
   };
 
-  const removeHeader = (key: string) => {
-    const newHeaders = { ...request.headers };
-    delete newHeaders[key];
-    onChange({ ...request, headers: newHeaders });
+  const handleJSONUpload = (file: File) => {
+    const reader = new FileReader();
+
+    reader.onload = (e) => {
+      try {
+        const content = e.target?.result as string;
+        const json = JSON.parse(content);
+        
+        if (typeof json === 'object' && json !== null) {
+          onChange({ 
+            ...request, 
+            body: JSON.stringify(json, null, 2),
+            useExcelLoop: false,
+            excelData: undefined,
+            selectedExcelColumns: undefined,
+          });
+        } else {
+          onChange({ ...request, body: content });
+        }
+        setUploadSuccess('JSON file loaded successfully!');
+        setTimeout(() => setUploadSuccess(null), 3000);
+      } catch (err) {
+        setUploadError('Invalid JSON file. Please upload a valid JSON file.');
+        console.error('Error parsing JSON:', err);
+      }
+    };
+
+    reader.onerror = () => {
+      setUploadError('Error reading file.');
+    };
+
+    reader.readAsText(file);
+  };
+
+  const handleExcelUpload = (file: File) => {
+    const reader = new FileReader();
+
+    reader.onload = (e) => {
+      try {
+        const data = new Uint8Array(e.target?.result as ArrayBuffer);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+        const jsonData = XLSX.utils.sheet_to_json(firstSheet);
+
+        if (jsonData.length === 0) {
+          setUploadError('Excel file is empty. Please upload a file with data.');
+          return;
+        }
+
+        // Get column names
+        const columns = Object.keys(jsonData[0]);
+        setExcelColumns(columns);
+
+        // Store the data and select all columns by default
+        onChange({ 
+          ...request, 
+          excelData: jsonData,
+          useExcelLoop: true,
+          selectedExcelColumns: columns, // Select all columns by default
+        });
+
+        setShowExcelOptions(true);
+        setUploadSuccess(`Excel file loaded! Found ${jsonData.length} rows and ${columns.length} columns.`);
+        setTimeout(() => setUploadSuccess(null), 5000);
+      } catch (err) {
+        setUploadError('Invalid Excel file. Please upload a valid .xlsx or .xls file.');
+        console.error('Error parsing Excel:', err);
+      }
+    };
+
+    reader.onerror = () => {
+      setUploadError('Error reading file.');
+    };
+
+    reader.readAsArrayBuffer(file);
+  };
+
+  const toggleExcelLoop = () => {
+    if (request.excelData && request.excelData.length > 0) {
+      onChange({ 
+        ...request, 
+        useExcelLoop: !request.useExcelLoop 
+      });
+    }
+  };
+
+  const toggleColumnSelection = (column: string) => {
+    const currentSelection = request.selectedExcelColumns || [];
+    let newSelection: string[];
+    
+    if (currentSelection.includes(column)) {
+      newSelection = currentSelection.filter(c => c !== column);
+    } else {
+      newSelection = [...currentSelection, column];
+    }
+    
+    // If no columns selected, select all
+    if (newSelection.length === 0) {
+      newSelection = excelColumns;
+    }
+    
+    onChange({ ...request, selectedExcelColumns: newSelection });
+  };
+
+  const selectAllColumns = () => {
+    onChange({ ...request, selectedExcelColumns: [...excelColumns] });
+  };
+
+  const deselectAllColumns = () => {
+    // Keep at least one column selected
+    if (excelColumns.length > 0) {
+      onChange({ ...request, selectedExcelColumns: [excelColumns[0]] });
+    }
   };
 
   return (
@@ -41,6 +167,7 @@ export default function RequestForm({ request, onChange }: RequestFormProps) {
       </h2>
 
       <div className="space-y-4">
+        {/* Method */}
         <div>
           <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">Method</label>
           <select
@@ -57,85 +184,274 @@ export default function RequestForm({ request, onChange }: RequestFormProps) {
           </select>
         </div>
 
+        {/* URL */}
         <div>
           <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">URL</label>
           <input
             type="text"
             value={request.url}
             onChange={(e) => onChange({ ...request, url: e.target.value })}
-            placeholder="https://api.example.com/endpoint"
+            placeholder="https://api.example.com/endpoint/{{id}}"
             className="w-full px-3 py-2 border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-primary)] rounded-lg"
           />
+          <p className="text-xs text-[var(--text-muted)] mt-1">
+            Use {'{{column_name}}'} as placeholder for Excel data
+          </p>
         </div>
 
-        <div>
-          <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">Headers</label>
-          {Object.entries(request.headers).map(([key, value]) => (
-            <div key={key} className="flex gap-2 mb-2">
-              <input
-                type="text"
-                value={key}
-                onChange={(e) => {
-                  const newHeaders = { ...request.headers };
-                  const oldValue = newHeaders[key];
-                  delete newHeaders[key];
-                  newHeaders[e.target.value] = oldValue;
-                  onChange({ ...request, headers: newHeaders });
-                }}
-                className="flex-1 px-3 py-1 border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-primary)] rounded text-sm"
-              />
-              <input
-                type="text"
-                value={value}
-                onChange={(e) => {
-                  const newHeaders = { ...request.headers };
-                  newHeaders[key] = e.target.value;
-                  onChange({ ...request, headers: newHeaders });
-                }}
-                className="flex-1 px-3 py-1 border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-primary)] rounded text-sm"
-              />
-              <button
-                onClick={() => removeHeader(key)}
-                className="px-2 py-1 bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded hover:bg-red-200"
-              >
-                ✕
-              </button>
+        {/* Headers */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <label className="block text-sm font-medium text-[var(--text-secondary)]">
+              Headers
+            </label>
+          </div>
+          
+          {Object.entries(request.headers).length > 0 && (
+            <div className="space-y-2 max-h-48 overflow-y-auto">
+              {Object.entries(request.headers).map(([key, value]) => (
+                <div key={key} className="flex gap-2">
+                  <input
+                    type="text"
+                    value={key}
+                    onChange={(e) => {
+                      const newHeaders = { ...request.headers };
+                      const oldValue = newHeaders[key];
+                      delete newHeaders[key];
+                      newHeaders[e.target.value] = oldValue;
+                      onChange({ ...request, headers: newHeaders });
+                    }}
+                    className="flex-1 px-3 py-1.5 border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-primary)] rounded-lg text-sm font-mono"
+                    placeholder="Header Name"
+                  />
+                  <input
+                    type="text"
+                    value={value}
+                    onChange={(e) => {
+                      const newHeaders = { ...request.headers };
+                      newHeaders[key] = e.target.value;
+                      onChange({ ...request, headers: newHeaders });
+                    }}
+                    className="flex-1 px-3 py-1.5 border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-primary)] rounded-lg text-sm font-mono"
+                    placeholder="Header Value (use {{column_name}})"
+                  />
+                  <button
+                    onClick={() => {
+                      const newHeaders = { ...request.headers };
+                      delete newHeaders[key];
+                      onChange({ ...request, headers: newHeaders });
+                    }}
+                    className="px-3 py-1.5 bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-lg hover:bg-red-200 dark:hover:bg-red-900/50 transition"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
             </div>
-          ))}
+          )}
+
           <div className="flex gap-2">
             <input
               type="text"
-              value={newHeaderKey}
-              onChange={(e) => setNewHeaderKey(e.target.value)}
-              placeholder="Header name"
-              className="flex-1 px-3 py-1 border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-primary)] rounded text-sm"
+              id="newHeaderKey"
+              placeholder="Header Name"
+              className="flex-1 px-3 py-1.5 border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-primary)] rounded-lg text-sm font-mono"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  const keyInput = e.target as HTMLInputElement;
+                  const valueInput = document.getElementById('newHeaderValue') as HTMLInputElement;
+                  if (keyInput.value && valueInput.value) {
+                    const newHeaders = { ...request.headers };
+                    newHeaders[keyInput.value] = valueInput.value;
+                    onChange({ ...request, headers: newHeaders });
+                    keyInput.value = '';
+                    valueInput.value = '';
+                  }
+                }
+              }}
             />
             <input
               type="text"
-              value={newHeaderValue}
-              onChange={(e) => setNewHeaderValue(e.target.value)}
-              placeholder="Header value"
-              className="flex-1 px-3 py-1 border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-primary)] rounded text-sm"
+              id="newHeaderValue"
+              placeholder="Header Value"
+              className="flex-1 px-3 py-1.5 border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-primary)] rounded-lg text-sm font-mono"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  const valueInput = e.target as HTMLInputElement;
+                  const keyInput = document.getElementById('newHeaderKey') as HTMLInputElement;
+                  if (keyInput.value && valueInput.value) {
+                    const newHeaders = { ...request.headers };
+                    newHeaders[keyInput.value] = valueInput.value;
+                    onChange({ ...request, headers: newHeaders });
+                    keyInput.value = '';
+                    valueInput.value = '';
+                  }
+                }
+              }}
             />
             <button
-              onClick={addHeader}
-              className="px-3 py-1 bg-purple-600 text-white rounded hover:bg-purple-700"
+              onClick={() => {
+                const keyInput = document.getElementById('newHeaderKey') as HTMLInputElement;
+                const valueInput = document.getElementById('newHeaderValue') as HTMLInputElement;
+                if (keyInput.value && valueInput.value) {
+                  const newHeaders = { ...request.headers };
+                  newHeaders[keyInput.value] = valueInput.value;
+                  onChange({ ...request, headers: newHeaders });
+                  keyInput.value = '';
+                  valueInput.value = '';
+                }
+              }}
+              className="px-4 py-1.5 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition"
             >
               +
             </button>
           </div>
         </div>
 
+        {/* Body with upload button */}
         <div>
-          <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">Request Body</label>
+          <div className="flex items-center justify-between mb-1">
+            <label className="block text-sm font-medium text-[var(--text-secondary)]">
+              Request Body (JSON)
+            </label>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="px-3 py-1 text-sm bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition flex items-center gap-1"
+              >
+                📤 Upload File
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".json,.xlsx,.xls,application/json"
+                onChange={handleFileUpload}
+                className="hidden"
+              />
+            </div>
+          </div>
+          
+          {uploadError && (
+            <div className="mb-2 p-2 bg-red-100 dark:bg-red-900/30 border border-red-400 dark:border-red-700 text-red-700 dark:text-red-300 rounded-lg text-sm">
+              ❌ {uploadError}
+            </div>
+          )}
+          
+          {uploadSuccess && (
+            <div className="mb-2 p-2 bg-green-100 dark:bg-green-900/30 border border-green-400 dark:border-green-700 text-green-700 dark:text-green-300 rounded-lg text-sm">
+              ✅ {uploadSuccess}
+            </div>
+          )}
+
+          {/* Excel Loop Options with Multi-Column Selection */}
+          {request.excelData && request.excelData.length > 0 && (
+            <div className="mb-3 p-3 bg-gray-50 dark:bg-gray-900/30 border border-[var(--border-color)] rounded-lg">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-3">
+                  <label className="text-sm font-medium text-[var(--text-secondary)]">
+                    🔄 Loop Through Excel Data
+                  </label>
+                  <button
+                    onClick={toggleExcelLoop}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                      request.useExcelLoop ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-600'
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                        request.useExcelLoop ? 'translate-x-6' : 'translate-x-1'
+                      }`}
+                    />
+                  </button>
+                </div>
+                <span className="text-xs text-[var(--text-muted)]">
+                  {request.excelData.length} rows loaded
+                </span>
+              </div>
+
+              {request.useExcelLoop && (
+                <div className="mt-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="block text-xs text-[var(--text-secondary)]">
+                      Select columns to use as data sources:
+                    </label>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={selectAllColumns}
+                        className="text-xs px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded hover:bg-blue-200"
+                      >
+                        Select All
+                      </button>
+                      <button
+                        onClick={deselectAllColumns}
+                        className="text-xs px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 rounded hover:bg-gray-200"
+                      >
+                        Deselect All
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {excelColumns.map((col) => {
+                      const isSelected = (request.selectedExcelColumns || []).includes(col);
+                      return (
+                        <button
+                          key={col}
+                          onClick={() => toggleColumnSelection(col)}
+                          className={`px-3 py-1 text-xs rounded-full transition ${
+                            isSelected
+                              ? 'bg-blue-500 text-white hover:bg-blue-600'
+                              : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-300 dark:hover:bg-gray-600'
+                          }`}
+                        >
+                          {col} {isSelected && '✓'}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="text-xs text-[var(--text-muted)] mt-2">
+                    Selected columns: {(request.selectedExcelColumns || []).join(', ') || 'None'}
+                  </p>
+                  <p className="text-xs text-[var(--text-muted)] mt-1">
+                    Use {'{{column_name}}'} in URL, Headers, or Body to reference Excel data
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
           <textarea
             value={request.body}
             onChange={(e) => onChange({ ...request, body: e.target.value })}
-            placeholder='{"key": "value"}'
-            rows={4}
+            placeholder='{"key": "{{column_name}}", "value": "{{another_column}}"}'
+            rows={6}
             className="w-full px-3 py-2 border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-primary)] rounded-lg font-mono text-sm"
+            spellCheck={false}
           />
+          
+          <div className="mt-1 flex justify-between text-xs text-[var(--text-muted)]">
+            <span>Paste JSON or upload .json/.xlsx/.xls file</span>
+            <span>{request.body.length > 0 ? `${request.body.length} characters` : ''}</span>
+          </div>
         </div>
+
+        {/* Quick format button */}
+        {request.body.trim() && (
+          <div className="flex justify-end">
+            <button
+              onClick={() => {
+                try {
+                  const parsed = JSON.parse(request.body);
+                  onChange({ ...request, body: JSON.stringify(parsed, null, 2) });
+                } catch (e) {
+                  // Not valid JSON, ignore
+                }
+              }}
+              className="text-xs px-3 py-1 bg-gray-100 dark:bg-gray-700 text-[var(--text-secondary)] rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition"
+            >
+              🔄 Format JSON
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -9,7 +9,6 @@ interface K6ConfigProps {
     duration: string;
     stages?: string;
     thresholds?: string;
-    gracefulStop?: string;
   };
   envVars: Record<string, string>;
   args: string;
@@ -17,6 +16,7 @@ interface K6ConfigProps {
   useDashboard?: boolean;
   dashboardPort?: number;
   restAPIPort?: number;
+  useRestAPI?: boolean;
   onChange: (updates: any) => void;
 }
 
@@ -28,6 +28,7 @@ export default function K6Config({
   useDashboard = true,
   dashboardPort = 5665,
   restAPIPort = 6565,
+  useRestAPI = true,
   onChange,
 }: K6ConfigProps) {
   const [newEnvKey, setNewEnvKey] = useState('');
@@ -79,31 +80,14 @@ export default function K6Config({
           </div>
         </div>
 
-        {/* ⭐ Graceful Stop - NEW */}
-        <div>
-          <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">
-            Graceful Stop
-          </label>
-          <input
-            type="text"
-            value={options.gracefulStop || '0s'}
-            onChange={(e) => onChange({ 
-              options: { ...options, gracefulStop: e.target.value } 
-            })}
-            placeholder="0s, 5s, 10s"
-            className="w-full px-3 py-2 border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-primary)] rounded-lg"
-          />
-          <p className="text-xs text-[var(--text-muted)] mt-1">
-            Time to wait for iterations to finish (0s = immediate stop)
-          </p>
-        </div>
-
-        {/* Web Dashboard Toggle */}
+        {/* Web Dashboard Toggle - Purple */}
         <div className="border-t border-[var(--border-color)] pt-4">
           <div className="flex items-center justify-between">
             <label className="text-sm font-medium text-[var(--text-secondary)]">📊 Web Dashboard</label>
             <div className="flex items-center gap-2">
-              <span className="text-xs text-[var(--text-muted)]">{useDashboard ? 'Enabled' : 'Disabled'}</span>
+              <span className={`text-xs ${useDashboard ? 'text-purple-600 dark:text-purple-400' : 'text-[var(--text-muted)]'}`}>
+                {useDashboard ? 'Enabled' : 'Disabled'}
+              </span>
               <button
                 onClick={() => onChange({ useDashboard: !useDashboard })}
                 className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
@@ -134,25 +118,44 @@ export default function K6Config({
           )}
         </div>
 
-        {/* REST API Port */}
+        {/* REST API Toggle - purple (same style as Web Dashboard) */}
         <div className="border-t border-[var(--border-color)] pt-4">
           <div className="flex items-center justify-between">
-            <label className="text-sm font-medium text-[var(--text-secondary)]">🔌 REST API Port</label>
-            <span className="text-xs text-[var(--text-muted)]">Required for metrics</span>
+            <label className="text-sm font-medium text-[var(--text-secondary)]">🔌 REST API</label>
+            <div className="flex items-center gap-2">
+              <span className={`text-xs ${useRestAPI ? 'text-purple-600 dark:text-purple-400' : 'text-[var(--text-muted)]'}`}>
+                {useRestAPI ? 'Enabled' : 'Disabled'}
+              </span>
+              <button
+                onClick={() => onChange({ useRestAPI: !useRestAPI })}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                  useRestAPI ? 'bg-purple-600' : 'bg-gray-300 dark:bg-gray-600'
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    useRestAPI ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+            </div>
           </div>
-          <div className="mt-2">
-            <input
-              type="number"
-              value={restAPIPort}
-              onChange={(e) => onChange({ restAPIPort: parseInt(e.target.value) || 6565 })}
-              min="1024"
-              max="65535"
-              className="w-full px-3 py-1 border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-primary)] rounded text-sm"
-            />
-            <p className="text-xs text-[var(--text-muted)] mt-1">
-              API at http://localhost:{restAPIPort}/v1/status
-            </p>
-          </div>
+          {useRestAPI && (
+            <div className="mt-2">
+              <label className="block text-xs text-[var(--text-muted)] mb-1">REST API Port</label>
+              <input
+                type="number"
+                value={restAPIPort}
+                onChange={(e) => onChange({ restAPIPort: parseInt(e.target.value) || 6565 })}
+                min="1024"
+                max="65535"
+                className="w-full px-3 py-1 border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-primary)] rounded text-sm"
+              />
+              <p className="text-xs text-[var(--text-muted)] mt-1">
+                API at http://localhost:{restAPIPort}/v1/status
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Stages */}
