@@ -26,6 +26,39 @@ export default function RequestForm({ request, onChange }: RequestFormProps) {
   const [curlInput, setCurlInput] = useState('');
   const [showCurlImport, setShowCurlImport] = useState(false);
   const [curlError, setCurlError] = useState<string | null>(null);
+  const urlInputRef = useRef<HTMLInputElement>(null);
+  const bodyTextareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const DYNAMIC_TOKENS = [
+    { label: 'UUID', token: '{{$uuid}}', title: 'Generate UUID v4 per iteration' },
+    { label: 'Increment', token: '{{$increment}}', title: 'Auto-incrementing number per VU' },
+    { label: 'Timestamp', token: '{{$timestamp}}', title: 'Current timestamp in ms' },
+    { label: 'Random Int', token: '{{$randomInt}}', title: 'Random integer 0-999999' },
+    { label: 'Random Str', token: '{{$randomString}}', title: 'Random alphanumeric string' },
+  ];
+
+  const insertAtCursor = (el: HTMLInputElement | HTMLTextAreaElement | null, field: string, token: string, setter: (v: string) => void) => {
+    if (!el) return;
+    el.focus();
+    const start = el.selectionStart ?? field.length;
+    const end = el.selectionEnd ?? field.length;
+
+    let success = false;
+    try {
+      success = document.execCommand('insertText', false, token);
+    } catch {}
+
+    if (success) {
+      return;
+    }
+
+    const newVal = field.slice(0, start) + token + field.slice(end);
+    setter(newVal);
+    setTimeout(() => {
+      el.focus();
+      el.selectionStart = el.selectionEnd = start + token.length;
+    }, 0);
+  };
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -263,14 +296,27 @@ export default function RequestForm({ request, onChange }: RequestFormProps) {
         <div>
           <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">URL</label>
           <input
+            ref={urlInputRef}
             type="text"
             value={request.url}
             onChange={(e) => onChange({ ...request, url: e.target.value })}
             placeholder="https://api.example.com/endpoint/{{id}}"
             className="w-full px-3 py-2 border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-primary)] rounded-lg"
           />
+          <div className="flex flex-wrap gap-1.5 mt-1.5">
+            {DYNAMIC_TOKENS.map(dt => (
+              <button
+                key={dt.token}
+                onClick={() => insertAtCursor(urlInputRef.current, request.url, dt.token, (v) => onChange({ ...request, url: v }))}
+                title={dt.title}
+                className="text-[10px] px-2 py-0.5 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 rounded-full hover:bg-amber-200 dark:hover:bg-amber-900/50 transition"
+              >
+                {dt.label}
+              </button>
+            ))}
+          </div>
           <p className="text-xs text-[var(--text-muted)] mt-1">
-            Use {'{{column_name}}'} as placeholder for Excel data
+            Use {'{{column_name}}'} for Excel data or click a tag above to insert dynamic values
           </p>
         </div>
 
@@ -494,7 +540,20 @@ export default function RequestForm({ request, onChange }: RequestFormProps) {
             </div>
           )}
 
+          <div className="flex flex-wrap gap-1.5 mb-2">
+            {DYNAMIC_TOKENS.map(dt => (
+              <button
+                key={dt.token}
+                onClick={() => insertAtCursor(bodyTextareaRef.current, request.body, dt.token, (v) => onChange({ ...request, body: v }))}
+                title={dt.title}
+                className="text-[10px] px-2 py-0.5 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 rounded-full hover:bg-amber-200 dark:hover:bg-amber-900/50 transition"
+              >
+                {dt.label}
+              </button>
+            ))}
+          </div>
           <textarea
+            ref={bodyTextareaRef}
             value={request.body}
             onChange={(e) => onChange({ ...request, body: e.target.value })}
             placeholder='{"key": "{{column_name}}", "value": "{{another_column}}"}'

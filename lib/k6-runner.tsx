@@ -78,12 +78,49 @@ export interface TestInfo {
 const runningTests = new Map<string, TestInfo>();
 const testEmitters = new Map<string, EventEmitter>();
 
+const DYNAMIC_VARS: Record<string, string> = {
+  uuid: '$uuid()',
+  increment: '$increment()',
+  timestamp: '$timestamp()',
+  randomInt: '$randomInt()',
+  randomString: '$randomString()',
+};
+
+function hasDynamicVars(s: string): boolean {
+  return /\{\{\$\w+\}\}/.test(s);
+}
+
+function replaceDynamicTokens(text: string): string {
+  return text.replace(/\{\{\$(\w+)\}\}/g, (_, name) =>
+    DYNAMIC_VARS[name] ? `\${${DYNAMIC_VARS[name]}}` : `\${'{{$${name}}}'}`
+  );
+}
+
+function replaceDynamicJSON(jsonStr: string): string {
+  return jsonStr.replace(/"\{\{\$(\w+)\}\}"/g, (_, name) =>
+    DYNAMIC_VARS[name] ? `"\${${DYNAMIC_VARS[name]}}"` : `"{{$${name}}}"`
+  );
+}
+
+function dynamicHelpers(): string {
+  return `
+function $uuid() { return crypto.randomUUID(); }
+let $counter = 0;
+function $increment() { return $counter++; }
+function $timestamp() { return Date.now(); }
+function $randomInt() { return Math.floor(Math.random() * 1000000); }
+function $randomString() { return Math.random().toString(36).substring(2, 10); }
+
+`;
+}
+
 function generateScript(config: TestConfig): string {
   const { request, options = {}, env = {} } = config;
 
   let script = `import http from 'k6/http';\n`;
   script += `import { check, sleep } from 'k6';\n`;
-  script += `import exec from 'k6/execution';\n\n`;
+  script += `import exec from 'k6/execution';\n`;
+  script += dynamicHelpers();
 
   const cleanOptions: any = { ...options };
   if (cleanOptions.stages) {
@@ -116,21 +153,41 @@ function generateScript(config: TestConfig): string {
   script += `  const percent = Math.round(progress * 100);\n`;
   script += `  console.log(JSON.stringify({ type: 'progress', percent, vu, iter, timestamp: Date.now() }));\n\n`;
 
-  script += `  const url = '${request.url}';\n`;
+  if (hasDynamicVars(request.url)) {
+    script += `  const url = \`${replaceDynamicTokens(request.url)}\`;\n`;
+  } else {
+    script += `  const url = '${request.url}';\n`;
+  }
 
   if (request.body) {
     try {
       JSON.parse(request.body);
-      script += `  const payload = ${request.body};\n`;
+      if (hasDynamicVars(request.body)) {
+        let bodyStr = JSON.stringify(JSON.parse(request.body));
+        bodyStr = replaceDynamicJSON(bodyStr);
+        script += `  const payload = JSON.parse(\`${bodyStr}\`);\n`;
+      } else {
+        script += `  const payload = ${request.body};\n`;
+      }
     } catch {
-      script += `  const payload = '${request.body.replace(/'/g, "\\'")}';\n`;
+      if (hasDynamicVars(request.body)) {
+        script += `  const payload = \`${replaceDynamicTokens(request.body)}\`;\n`;
+      } else {
+        script += `  const payload = '${request.body.replace(/'/g, "\\'")}';\n`;
+      }
     }
   } else {
     script += `  const payload = null;\n`;
   }
 
   if (request.headers && Object.keys(request.headers).length > 0) {
-    script += `  const headers = ${JSON.stringify(request.headers)};\n`;
+    let headersStr = JSON.stringify(request.headers);
+    if (hasDynamicVars(headersStr)) {
+      headersStr = replaceDynamicJSON(headersStr);
+      script += `  const headers = JSON.parse(\`${headersStr}\`);\n`;
+    } else {
+      script += `  const headers = ${headersStr};\n`;
+    }
   } else {
     script += `  const headers = { 'Content-Type': 'application/json' };\n`;
   }
@@ -160,7 +217,8 @@ function generateScriptWithExcelData(config: TestConfig, excelData: any[], selec
 
   let script = `import http from 'k6/http';\n`;
   script += `import { check, sleep } from 'k6';\n`;
-  script += `import exec from 'k6/execution';\n\n`;
+  script += `import exec from 'k6/execution';\n`;
+  script += dynamicHelpers();
 
   script += `const excelData = ${JSON.stringify(excelData)};\n\n`;
   script += `const selectedColumns = ${JSON.stringify(selectedColumns)};\n\n`;
@@ -202,7 +260,11 @@ function generateScriptWithExcelData(config: TestConfig, excelData: any[], selec
   script += `    selectedColumns.forEach(col => { rowData[col] = row[col]; });\n`;
   script += `    console.log(JSON.stringify({ type: 'excel_row', row: i + 1, total: excelData.length, data: rowData }));\n\n`;
 
-  script += `    let url = '${request.url}';\n`;
+  if (hasDynamicVars(request.url)) {
+    script += `    let url = \`${replaceDynamicTokens(request.url)}\`;\n`;
+  } else {
+    script += `    let url = '${request.url}';\n`;
+  }
   selectedColumns.forEach(col => {
     script += `    url = url.replace(/{{${col}}}/g, row['${col}'] || '');\n`;
   });
@@ -210,18 +272,29 @@ function generateScriptWithExcelData(config: TestConfig, excelData: any[], selec
 
   if (request.body) {
     try {
-      const bodyObj = JSON.parse(request.body);
-      let bodyStr = JSON.stringify(bodyObj);
+      JSON.parse(request.body);
+      let bodyStr = JSON.stringify(JSON.parse(request.body));
       selectedColumns.forEach(col => {
         bodyStr = bodyStr.replace(new RegExp(`"{{${col}}}"`, 'g'), `"${'${row[\'' + col + '\']}'}"`);
         bodyStr = bodyStr.replace(new RegExp(`{{${col}}}`, 'g'), '${row[\'' + col + '\']}');
       });
-      script += `    const payload = ${bodyStr};\n`;
+      if (hasDynamicVars(bodyStr)) {
+        bodyStr = replaceDynamicJSON(bodyStr);
+      }
+      const isTemplate = selectedColumns.length > 0 || hasDynamicVars(request.body);
+      if (isTemplate) {
+        script += `    const payload = JSON.parse(\`${bodyStr}\`);\n`;
+      } else {
+        script += `    const payload = ${bodyStr};\n`;
+      }
     } catch {
       let bodyTemplate = request.body;
       selectedColumns.forEach(col => {
         bodyTemplate = bodyTemplate.replace(new RegExp(`{{${col}}}`, 'g'), '${row[\'' + col + '\']}');
       });
+      if (hasDynamicVars(bodyTemplate)) {
+        bodyTemplate = replaceDynamicTokens(bodyTemplate);
+      }
       script += `    const payload = \`${bodyTemplate}\`;\n`;
     }
   } else {
@@ -233,7 +306,14 @@ function generateScriptWithExcelData(config: TestConfig, excelData: any[], selec
     selectedColumns.forEach(col => {
       headersStr = headersStr.replace(new RegExp(`"{{${col}}}"`, 'g'), `"${'${row[\'' + col + '\']}'}"`);
     });
-    script += `    const headers = ${headersStr};\n`;
+    if (hasDynamicVars(headersStr)) {
+      headersStr = replaceDynamicJSON(headersStr);
+      script += `    const headers = JSON.parse(\`${headersStr}\`);\n`;
+    } else if (selectedColumns.length > 0) {
+      script += `    const headers = ${headersStr};\n`;
+    } else {
+      script += `    const headers = ${headersStr};\n`;
+    }
   } else {
     script += `    const headers = { 'Content-Type': 'application/json' };\n`;
   }
