@@ -2,6 +2,7 @@
 
 import { useState, useRef } from 'react';
 import * as XLSX from 'xlsx';
+import { parseCurlCommand } from '@/lib/curl-parser';
 
 interface RequestFormProps {
   request: {
@@ -22,6 +23,9 @@ export default function RequestForm({ request, onChange }: RequestFormProps) {
   const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
   const [excelColumns, setExcelColumns] = useState<string[]>([]);
   const [showExcelOptions, setShowExcelOptions] = useState(false);
+  const [curlInput, setCurlInput] = useState('');
+  const [showCurlImport, setShowCurlImport] = useState(false);
+  const [curlError, setCurlError] = useState<string | null>(null);
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -95,7 +99,7 @@ export default function RequestForm({ request, onChange }: RequestFormProps) {
         }
 
         // Get column names
-        const columns = Object.keys(jsonData[0]);
+        const columns = Object.keys(jsonData[0] as Record<string, unknown>);
         setExcelColumns(columns);
 
         // Store the data and select all columns by default
@@ -160,11 +164,82 @@ export default function RequestForm({ request, onChange }: RequestFormProps) {
     }
   };
 
+  const handleCurlImport = () => {
+    const parsed = parseCurlCommand(curlInput);
+    if (parsed.error) {
+      setCurlError(parsed.error);
+      return;
+    }
+    setCurlError(null);
+    setShowCurlImport(false);
+    setCurlInput('');
+    onChange({
+      ...request,
+      method: parsed.method,
+      url: parsed.url,
+      headers: { ...request.headers, ...parsed.headers },
+      body: parsed.body,
+    });
+  };
+
   return (
     <div className="bg-[var(--bg-card)] rounded-xl shadow-[var(--shadow)] p-6 border border-[var(--border-color)]">
-      <h2 className="text-xl font-semibold text-[var(--text-primary)] mb-6 pb-2 border-b border-[var(--border-color)]">
-        📝 Request Configuration
-      </h2>
+      <div className="flex items-center justify-between mb-6 pb-2 border-b border-[var(--border-color)]">
+        <h2 className="text-xl font-semibold text-[var(--text-primary)]">
+          📝 Request Configuration
+        </h2>
+        <button
+          onClick={() => {
+            setShowCurlImport(!showCurlImport);
+            setCurlError(null);
+            if (!showCurlImport) setCurlInput('');
+          }}
+          className="text-xs px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg transition flex items-center gap-1"
+        >
+          {showCurlImport ? '✕ Close' : '⬇ Import cURL'}
+        </button>
+      </div>
+
+      {showCurlImport && (
+        <div className="mb-6 p-4 bg-amber-50 dark:bg-amber-900/20 border-2 border-amber-400 dark:border-amber-600 rounded-lg">
+          <label className="block text-sm font-medium text-[var(--text-secondary)] mb-2">
+            Paste cURL Command
+          </label>
+          <textarea
+            value={curlInput}
+            onChange={(e) => {
+              setCurlInput(e.target.value);
+              setCurlError(null);
+            }}
+            placeholder={'curl -X POST https://api.example.com/endpoint \\\n  -H \'Content-Type: application/json\' \\\n  -d \'{"key": "value"}\''}
+            rows={5}
+            className="w-full px-3 py-2 border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-primary)] rounded-lg font-mono text-sm mb-3"
+            spellCheck={false}
+          />
+          {curlError && (
+            <p className="text-sm text-red-600 dark:text-red-400 mb-2">{curlError}</p>
+          )}
+          <div className="flex gap-2">
+            <button
+              onClick={handleCurlImport}
+              disabled={!curlInput.trim()}
+              className="px-4 py-2 bg-amber-500 hover:bg-amber-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded-lg transition text-sm"
+            >
+              Import
+            </button>
+            <button
+              onClick={() => {
+                setShowCurlImport(false);
+                setCurlInput('');
+                setCurlError(null);
+              }}
+              className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-[var(--text-secondary)] rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition text-sm"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="space-y-4">
         {/* Method */}

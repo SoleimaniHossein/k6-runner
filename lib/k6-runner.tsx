@@ -65,8 +65,8 @@ export interface TestInfo {
   elapsedSeconds?: number;
   remainingSeconds?: number;
   totalDurationSeconds?: number;
-  _pollInterval?: NodeJS.Timeout;
-  _safetyInterval?: NodeJS.Timeout;
+  _pollInterval?: NodeJS.Timeout | null;
+  _safetyInterval?: NodeJS.Timeout | null;
   _lastProgressUpdate?: number;
   _lastEmittedProgress?: number;
   _startTimestamp: number;
@@ -435,7 +435,7 @@ export async function runK6Test(config: TestConfig, testId?: string): Promise<Te
     
     let script: string;
     if (hasExcelData) {
-      console.log(`📊 Using Excel data with ${config.request.excelData.length} rows`);
+      console.log(`📊 Using Excel data with ${config.request.excelData!.length} rows`);
       script = generateScriptWithExcelData(
         config, 
         config.request.excelData!, 
@@ -700,7 +700,7 @@ export async function runK6Test(config: TestConfig, testId?: string): Promise<Te
       k6Process.on('close', async (code) => {
         if (info.status === 'running') {
           info.status = code === 0 ? 'completed' : 'failed';
-          info.exitCode = code;
+          info.exitCode = code ?? undefined;
           info.progress = 100;
           info.isCompleted = true;
           info.remainingSeconds = 0;

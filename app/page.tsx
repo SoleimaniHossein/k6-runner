@@ -87,7 +87,7 @@ export default function Home() {
 
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const isMounted = useRef(true);
-  const confirmTimerRef = useRef<NodeJS.Timeout>();
+  const confirmTimerRef = useRef<NodeJS.Timeout | null>(null);
   const testIdRef = useRef(testId);
   testIdRef.current = testId;
 
@@ -195,7 +195,7 @@ export default function Home() {
   useEffect(() => {
     return () => {
       isMounted.current = false;
-      clearTimeout(confirmTimerRef.current);
+      if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current);
       if (pollIntervalRef.current) {
         clearInterval(pollIntervalRef.current);
         pollIntervalRef.current = null;
@@ -420,7 +420,7 @@ export default function Home() {
 
     if (!confirmingStop) {
       setConfirmingStop(true);
-      clearTimeout(confirmTimerRef.current);
+      if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current);
       confirmTimerRef.current = setTimeout(() => setConfirmingStop(false), 3000);
       return;
     }
