@@ -25,7 +25,6 @@ interface TestConfig {
   args: string;
   output: string;
   useDashboard?: boolean;
-  dashboardHost?: string;
   dashboardPort?: number;
   restAPIPort?: number;
   useRestAPI?: boolean;
@@ -56,7 +55,6 @@ export default function Home() {
     args: '',
     output: 'json',
     useDashboard: true,
-    dashboardHost: 'localhost',
     dashboardPort: 5665,
     restAPIPort: 6565,
     useRestAPI: true,
@@ -107,7 +105,7 @@ export default function Home() {
           setCurrentStage(state.currentStage || '');
           setLiveMetrics(state.liveMetrics || {});
           setCurrentVUs(state.currentVUs || 0);
-          setDashboardUrl(state.dashboardUrl);
+          setDashboardUrl(resolveDashboardUrl(state.dashboardUrl));
           setShowDashboard(state.showDashboard || false);
           setElapsedTime(state.elapsedTime || '0s');
           setRemainingTime(state.remainingTime || '0s');
@@ -171,7 +169,7 @@ export default function Home() {
           setProgress(running.progress || 0);
           setStatusMessage('Running...');
           setCurrentStage(running.stage || '');
-          if (running.dashboardUrl) setDashboardUrl(running.dashboardUrl);
+          if (running.dashboardUrl) setDashboardUrl(resolveDashboardUrl(running.dashboardUrl));
           if (running.elapsedSeconds) {
             const mins = Math.floor(running.elapsedSeconds / 60);
             const secs = running.elapsedSeconds % 60;
@@ -297,7 +295,7 @@ export default function Home() {
     }
 
     if (data.dashboardUrl) {
-      setDashboardUrl(data.dashboardUrl);
+      setDashboardUrl(resolveDashboardUrl(data.dashboardUrl));
     }
 
     // ✅ Keep isRunning true if status is running
@@ -374,7 +372,7 @@ export default function Home() {
 
     // Dashboard URL
     if (testConfig.useDashboard) {
-      const host = testConfig.dashboardHost || 'localhost';
+      const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
       const port = testConfig.dashboardPort || 5665;
       const url = `http://${host}:${port}/ui/`;
       setDashboardUrl(url);
@@ -465,6 +463,19 @@ export default function Home() {
     return mins > 0 ? `${mins}m${secs}s` : `${secs}s`;
   };
 
+  const resolveDashboardUrl = (url: string | undefined) => {
+    if (!url) return undefined;
+    try {
+      const u = new URL(url);
+      if (u.hostname === 'localhost' || u.hostname === '127.0.0.1') {
+        u.hostname = window.location.hostname;
+      }
+      return u.toString();
+    } catch {
+      return url;
+    }
+  };
+
   return (
     <main className="min-h-screen bg-[var(--bg-primary)] text-[var(--text-primary)] transition-colors duration-300">
       <header className="bg-gradient-to-r from-[var(--gradient-start)] to-[var(--gradient-end)] text-white shadow-lg">
@@ -503,7 +514,6 @@ export default function Home() {
             args={testConfig.args}
             output={testConfig.output}
             useDashboard={testConfig.useDashboard}
-            dashboardHost={testConfig.dashboardHost}
             dashboardPort={testConfig.dashboardPort}
             restAPIPort={testConfig.restAPIPort}
             useRestAPI={testConfig.useRestAPI}

@@ -14,7 +14,6 @@ interface K6ConfigProps {
   args: string;
   output: string;
   useDashboard?: boolean;
-  dashboardHost?: string;
   dashboardPort?: number;
   restAPIPort?: number;
   useRestAPI?: boolean;
@@ -32,7 +31,6 @@ export default function K6Config({
   args,
   output,
   useDashboard = true,
-  dashboardHost = 'localhost',
   dashboardPort = 5665,
   restAPIPort = 6565,
   useRestAPI = true,
@@ -145,29 +143,16 @@ export default function K6Config({
             </div>
           </div>
           {useDashboard && (
-            <div className="mt-2 space-y-2">
-              <div>
-                <label className="block text-xs text-[var(--text-muted)] mb-1">Dashboard Host</label>
-                <input
-                  type="text"
-                  value={dashboardHost}
-                  onChange={(e) => onChange({ dashboardHost: e.target.value })}
-                  placeholder="localhost"
-                  className="w-full px-3 py-1 border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-primary)] rounded text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-[var(--text-muted)] mb-1">Dashboard Port</label>
-                <input
-                  type="number"
-                  value={dashboardPort}
-                  onChange={(e) => onChange({ dashboardPort: parseInt(e.target.value) || 5665 })}
-                  min="1024"
-                  max="65535"
-                  className="w-full px-3 py-1 border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-primary)] rounded text-sm"
-                />
-              </div>
-              <p className="text-xs text-[var(--text-muted)]">Access at http://{dashboardHost || 'localhost'}:{dashboardPort}/ui/</p>
+            <div className="mt-2">
+              <label className="block text-xs text-[var(--text-muted)] mb-1">Dashboard Port</label>
+              <input
+                type="number"
+                value={dashboardPort}
+                onChange={(e) => onChange({ dashboardPort: parseInt(e.target.value) || 5665 })}
+                min="1024"
+                max="65535"
+                className="w-full px-3 py-1 border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-primary)] rounded text-sm"
+              />
             </div>
           )}
         </div>

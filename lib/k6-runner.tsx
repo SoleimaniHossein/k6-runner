@@ -27,7 +27,6 @@ export interface TestConfig {
   args: string;
   output: string;
   useDashboard?: boolean;
-  dashboardHost?: string;
   dashboardPort?: number;
   restAPIPort?: number;
   useRestAPI?: boolean;
@@ -534,7 +533,7 @@ export async function runK6Test(config: TestConfig, testId?: string): Promise<Te
           metrics: {},
           stage: '',
           currentVUs: 0,
-          dashboardUrl: useDashboard ? `http://${config.dashboardHost || 'localhost'}:${dashboardPort}/ui/` : undefined,
+          dashboardUrl: useDashboard ? `http://localhost:${dashboardPort}/ui/` : undefined,
           lastUpdate: Date.now(),
           restAPIPort: restAPIPort,
           useDashboard: useDashboard,
@@ -559,7 +558,7 @@ export async function runK6Test(config: TestConfig, testId?: string): Promise<Te
         info.status = 'running';
         info.startTime = new Date().toISOString();
         info.config = config;
-        info.dashboardUrl = useDashboard ? `http://${config.dashboardHost || 'localhost'}:${dashboardPort}/ui/` : undefined;
+        info.dashboardUrl = useDashboard ? `http://localhost:${dashboardPort}/ui/` : undefined;
         info.restAPIPort = restAPIPort;
         info.useDashboard = useDashboard;
         info.useRestAPI = useRestAPI;
