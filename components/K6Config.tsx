@@ -1,7 +1,7 @@
 // components/K6Config.tsx
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 
 interface K6ConfigProps {
   options: {
@@ -45,6 +45,8 @@ export default function K6Config({
   const [newEnvValue, setNewEnvValue] = useState('');
   const [useStages, setUseStages] = useState(!!options.stages);
   const [useThresholds, setUseThresholds] = useState(!!options.thresholds);
+  const [tagHint, setTagHint] = useState(false);
+  const tagHintTimer = useRef<ReturnType<typeof setTimeout>>();
 
   const addEnv = () => {
     if (newEnvKey && newEnvValue) {
@@ -96,12 +98,25 @@ export default function K6Config({
           <input
             type="text"
             value={runnerTag}
-            onChange={(e) => onChange({ runnerTag: e.target.value })}
-            placeholder="test-runner-001"
+            onChange={(e) => {
+              const cleaned = e.target.value.replace(/[^a-zA-Z0-9._-]/g, '');
+              if (cleaned !== e.target.value) {
+                clearTimeout(tagHintTimer.current);
+                setTagHint(true);
+                tagHintTimer.current = setTimeout(() => setTagHint(false), 2500);
+              }
+              onChange({ runnerTag: cleaned });
+            }}
+            placeholder="e.g. login-test-001"
             className="w-full px-3 py-2 border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-primary)] rounded-lg"
           />
+          {tagHint && (
+            <p className="text-xs text-amber-600 dark:text-amber-400 mt-1 animate-pulse">
+              Only letters, numbers, dots, hyphens, and underscores allowed
+            </p>
+          )}
           <p className="text-xs text-[var(--text-muted)] mt-1">
-            Adds --tag runner_tag=value to k6 command for identifying test runs
+            Use letters, numbers, dots, hyphens, or underscores
           </p>
         </div>
 

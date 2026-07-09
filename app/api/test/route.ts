@@ -14,6 +14,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    if (body.runnerTag && !/^[a-zA-Z0-9._-]+$/.test(body.runnerTag)) {
+      return NextResponse.json(
+        { error: 'Invalid runnerTag: only letters, numbers, dots, hyphens, and underscores allowed (no spaces or commas)' },
+        { status: 400 }
+      );
+    }
+
     // Generate a test ID and start the test asynchronously
     const testId = uuidv4();
     console.log(`🚀 Starting test with ID: ${testId}`);

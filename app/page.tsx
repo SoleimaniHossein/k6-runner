@@ -236,6 +236,23 @@ export default function Home() {
       setTotalTime(mins > 0 ? `${mins}m${secs}s` : `${secs}s`);
     }
 
+    // Keep the recent tests list in sync with live progress
+    if (data.id) {
+      setTests(prev => prev.map(t =>
+        t.id === data.id
+          ? {
+              ...t,
+              progress: data.progress ?? t.progress,
+              status: data.status ?? t.status,
+              stage: data.stage ?? t.stage,
+              elapsedSeconds: data.elapsedSeconds ?? t.elapsedSeconds,
+              remainingSeconds: data.remainingSeconds ?? t.remainingSeconds,
+              totalDurationSeconds: data.totalDurationSeconds ?? t.totalDurationSeconds,
+            }
+          : t
+      ));
+    }
+
     if (data.dashboardUrl) {
       setDashboardUrl(data.dashboardUrl);
     }
@@ -549,7 +566,9 @@ export default function Home() {
           {dashboardUrl && !showDashboard && (
             <button
               onClick={() => setShowDashboard(true)}
-              className="px-8 py-3 bg-green-500 hover:bg-green-600 text-white font-semibold rounded-lg transition-all flex items-center gap-2"
+              disabled={!isRunning}
+              title={!isRunning ? 'Start a test first to view the dashboard' : ''}
+              className="px-8 py-3 bg-green-500 hover:bg-green-600 text-white font-semibold rounded-lg transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <span>📊</span> View Dashboard
             </button>
