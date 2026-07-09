@@ -25,6 +25,7 @@ interface TestConfig {
   args: string;
   output: string;
   useDashboard?: boolean;
+  dashboardHost?: string;
   dashboardPort?: number;
   restAPIPort?: number;
   useRestAPI?: boolean;
@@ -55,6 +56,7 @@ export default function Home() {
     args: '',
     output: 'json',
     useDashboard: true,
+    dashboardHost: 'localhost',
     dashboardPort: 5665,
     restAPIPort: 6565,
     useRestAPI: true,
@@ -80,14 +82,16 @@ export default function Home() {
   const [dashboardUrl, setDashboardUrl] = useState<string | undefined>(undefined);
   const [showDashboard, setShowDashboard] = useState(false);
   const [isTerminating, setIsTerminating] = useState(false);
+  const [confirmingStop, setConfirmingStop] = useState(false);
   const [elapsedTime, setElapsedTime] = useState<string>('0s');
   const [remainingTime, setRemainingTime] = useState<string>('0s');
   const [totalTime, setTotalTime] = useState<string>('0s');
-  const [pollingCount, setPollingCount] = useState(0);
 
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const isMounted = useRef(true);
-  const updateCounterRef = useRef(0);
+  const confirmTimerRef = useRef<NodeJS.Timeout>();
+  const testIdRef = useRef(testId);
+  testIdRef.current = testId;
 
   // Load persisted state
   useEffect(() => {
@@ -159,36 +163,74 @@ export default function Home() {
       const data = await response.json();
       if (isMounted.current) {
         setTests(Array.isArray(data) ? data : []);
+        // Auto-resume a running test from another tab
+        const running = Array.isArray(data) ? data.find((t: any) => t.status === 'running') : null;
+        if (running && !testId) {
+          setTestId(running.id);
+          setIsRunning(true);
+          setProgress(running.progress || 0);
+          setStatusMessage('Running...');
+          setCurrentStage(running.stage || '');
+          if (running.dashboardUrl) setDashboardUrl(running.dashboardUrl);
+          if (running.elapsedSeconds) {
+            const mins = Math.floor(running.elapsedSeconds / 60);
+            const secs = running.elapsedSeconds % 60;
+            setElapsedTime(mins > 0 ? `${mins}m${secs}s` : `${secs}s`);
+          }
+          if (running.totalDurationSeconds) {
+            const mins = Math.floor(running.totalDurationSeconds / 60);
+            const secs = running.totalDurationSeconds % 60;
+            setTotalTime(mins > 0 ? `${mins}m${secs}s` : `${secs}s`);
+          }
+        }
       }
     } catch (error) {
       console.error('Error loading tests:', error);
       if (isMounted.current) setTests([]);
     }
-  }, []);
+  }, [testId]);
 
   useEffect(() => {
     loadTests();
+  }, [loadTests]);
+
+  useEffect(() => {
     return () => {
       isMounted.current = false;
+      clearTimeout(confirmTimerRef.current);
       if (pollIntervalRef.current) {
         clearInterval(pollIntervalRef.current);
         pollIntervalRef.current = null;
       }
     };
-  }, [loadTests]);
+  }, []);
+
+  useEffect(() => {
+    if (!error) return;
+    const timer = setTimeout(() => setError(null), 8000);
+    return () => clearTimeout(timer);
+  }, [error]);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && !isRunning && !loading) {
+        runTest();
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  });
+
+  // Refresh the tests list when test starts or completes
+  useEffect(() => {
+    loadTests();
+  }, [isRunning, loadTests]);
 
   /**
    * Central update function
    */
   const updateState = useCallback((data: any) => {
     if (!isMounted.current) return;
-
-    updateCounterRef.current++;
-    console.log(`📊 UI Update #${updateCounterRef.current}:`, {
-      progress: data.progress,
-      status: data.status,
-      stage: data.stage,
-    });
 
     if (data.error) {
       setError(data.error);
@@ -200,7 +242,6 @@ export default function Home() {
     // Update progress
     if (data.progress !== undefined) {
       setProgress(data.progress);
-      console.log(`✅ UI Progress set to: ${data.progress}%`);
     }
 
     if (data.stage) {
@@ -238,19 +279,21 @@ export default function Home() {
 
     // Keep the recent tests list in sync with live progress
     if (data.id) {
-      setTests(prev => prev.map(t =>
-        t.id === data.id
-          ? {
-              ...t,
-              progress: data.progress ?? t.progress,
-              status: data.status ?? t.status,
-              stage: data.stage ?? t.stage,
-              elapsedSeconds: data.elapsedSeconds ?? t.elapsedSeconds,
-              remainingSeconds: data.remainingSeconds ?? t.remainingSeconds,
-              totalDurationSeconds: data.totalDurationSeconds ?? t.totalDurationSeconds,
-            }
-          : t
-      ));
+      setTests(prev => {
+        const entry = {
+          id: data.id,
+          status: data.status || 'running',
+          progress: data.progress ?? 0,
+          config: data.config?.request?.url || data.config || '',
+          stage: data.stage || '',
+          elapsedSeconds: data.elapsedSeconds,
+          remainingSeconds: data.remainingSeconds,
+          totalDurationSeconds: data.totalDurationSeconds,
+          fullConfig: data.config,
+        };
+        const filtered = prev.filter(t => t.id !== data.id);
+        return [entry, ...filtered];
+      });
     }
 
     if (data.dashboardUrl) {
@@ -262,10 +305,8 @@ export default function Home() {
       setIsRunning(true);
     }
 
-    // Handle completion
     if (data.complete || data.status === 'completed' || 
         data.status === 'failed' || data.status === 'terminated') {
-      console.log('🏁 Test completed:', data.status);
       setIsRunning(false);
       setTestResults(data);
       setTestId(null);
@@ -281,62 +322,44 @@ export default function Home() {
     }
   }, [loadTests]);
 
-  /**
-   * POLLING - Fetches data from API every 200ms
-   */
+  const updateStateRef = useRef(updateState);
+  updateStateRef.current = updateState;
+
   useEffect(() => {
-    if (!isRunning || !testId) {
-      console.log('⏸️ Polling not started (isRunning or testId missing).', { isRunning, testId });
-      return;
-    }
+    if (!isRunning || !testId) return;
 
-    console.log(`🔌 POLLING STARTED for test: ${testId}`);
-    setPollingCount(0);
-    
-    if (pollIntervalRef.current) {
-      clearInterval(pollIntervalRef.current);
-    }
+    let cancelled = false;
+    let pollCount = 0;
 
-    pollIntervalRef.current = setInterval(async () => {
+    const poll = async () => {
+      if (cancelled) return;
+      pollCount++;
       try {
-        setPollingCount(prev => prev + 1);
         const res = await fetch(`/api/test?action=status&id=${testId}`);
-        
         if (!res.ok) {
-          if (res.status === 404) {
-            console.warn(`⚠️ Test ${testId} not found, stopping polling.`);
-            clearInterval(pollIntervalRef.current!);
-            pollIntervalRef.current = null;
-            return;
-          }
-          console.warn(`⚠️ Polling response not OK: ${res.status}`);
+          if (res.status === 404) return;
           return;
         }
-        
         const data = await res.json();
-        console.log(`📊 Poll #${pollingCount + 1}: progress=${data.progress}, status=${data.status}`);
-        updateState(data);
-      } catch (err) {
-        console.error('❌ Polling error:', err);
-      }
-    }, 200);
-
-    return () => {
-      console.log(`🔌 POLLING STOPPED for test: ${testId}`);
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current);
-        pollIntervalRef.current = null;
+        updateStateRef.current(data);
+      } catch {
+        // ignore polling errors
       }
     };
-  }, [isRunning, testId, updateState, pollingCount]);
+
+    const interval = setInterval(poll, 200);
+    poll();
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [isRunning, testId]);
 
   /**
    * Start test
    */
   const runTest = async () => {
-    console.log('🚀 Starting test...');
-    
-    // Immediate UI feedback
     setIsRunning(true);
     setLoading(true);
     setError(null);
@@ -348,12 +371,12 @@ export default function Home() {
     setElapsedTime('0s');
     setRemainingTime('0s');
     setTotalTime(testConfig.options.duration || '10s');
-    setPollingCount(0);
-    
+
     // Dashboard URL
     if (testConfig.useDashboard) {
+      const host = testConfig.dashboardHost || 'localhost';
       const port = testConfig.dashboardPort || 5665;
-      const url = `http://localhost:${port}/ui/`;
+      const url = `http://${host}:${port}/ui/`;
       setDashboardUrl(url);
     }
     
@@ -374,17 +397,18 @@ export default function Home() {
 
       const data = await response.json();
       if (data.success && data.id) {
-        console.log(`✅ Test started with ID: ${data.id}`);
         setTestId(data.id);
         setStatusMessage('Running...');
         await loadTests();
+        setTimeout(() => {
+          document.getElementById('test-progress')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 300);
       } else {
         setError('Failed to start test');
         setIsRunning(false);
         setTestId(null);
       }
     } catch (error: any) {
-      console.error('❌ Error starting test:', error);
       setError(error.message || 'Error running test');
       setIsRunning(false);
       setTestId(null);
@@ -394,18 +418,22 @@ export default function Home() {
   };
 
   const terminateTest = async () => {
-    if (!testId || isTerminating) {
-      console.log('⚠️ Cannot terminate: no testId or already terminating');
+    if (!testId || isTerminating) return;
+
+    if (!confirmingStop) {
+      setConfirmingStop(true);
+      clearTimeout(confirmTimerRef.current);
+      confirmTimerRef.current = setTimeout(() => setConfirmingStop(false), 3000);
       return;
     }
+
+    setConfirmingStop(false);
     setIsTerminating(true);
 
     try {
-      console.log(`🛑 Terminating test: ${testId}`);
       const response = await fetch(`/api/test?action=terminate&id=${testId}`);
       
       if (response.ok) {
-        console.log(`✅ Test ${testId} terminated successfully`);
         setIsRunning(false);
         setTestId(null);
         setLiveMetrics({});
@@ -475,6 +503,7 @@ export default function Home() {
             args={testConfig.args}
             output={testConfig.output}
             useDashboard={testConfig.useDashboard}
+            dashboardHost={testConfig.dashboardHost}
             dashboardPort={testConfig.dashboardPort}
             restAPIPort={testConfig.restAPIPort}
             useRestAPI={testConfig.useRestAPI}
@@ -523,8 +552,8 @@ export default function Home() {
 
         {/* Progress Bar */}
         {isRunning && (
+          <div id="test-progress">
           <TestProgress
-            key={progress}
             progress={progress}
             status={statusMessage || 'Running...'}
             onTerminate={terminateTest}
@@ -532,18 +561,11 @@ export default function Home() {
             stage={currentStage}
             currentVUs={currentVUs}
             isTerminating={isTerminating}
+            confirmingStop={confirmingStop}
             elapsedTime={elapsedTime}
             remainingTime={remainingTime}
             totalTime={totalTime}
           />
-        )}
-
-        {/* Debug panel */}
-        {isRunning && (
-          <div className="mb-4 p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-400 dark:border-yellow-600 rounded text-center text-sm">
-            <span className="font-mono">
-              Debug: Progress = {progress}% &nbsp;|&nbsp; Test ID: {testId || 'null'} &nbsp;|&nbsp; Polling updates: {pollingCount}
-            </span>
           </div>
         )}
 
@@ -578,10 +600,17 @@ export default function Home() {
             <button
               onClick={terminateTest}
               disabled={isTerminating}
-              className="px-8 py-3 bg-red-500 hover:bg-red-600 text-white font-semibold rounded-lg transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              className={`px-8 py-3 font-semibold rounded-lg transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${
+                confirmingStop
+                  ? 'bg-red-600 hover:bg-red-700 text-white animate-pulse'
+                  : 'bg-red-500 hover:bg-red-600 text-white'
+              }`}
+              title={confirmingStop ? 'Click again to confirm' : 'Stop the running test'}
             >
               {isTerminating ? (
                 <><span className="animate-spin">⏳</span> Terminating...</>
+              ) : confirmingStop ? (
+                <><span>⚠️</span> Click again to stop</>
               ) : (
                 <><span>⏹️</span> Stop Test</>
               )}
@@ -591,9 +620,17 @@ export default function Home() {
 
         {testResults && <TestResults results={testResults} />}
 
-        {tests.length > 0 && (
+        {tests.length > 0 ? (
           <div className="bg-[var(--bg-card)] rounded-xl shadow-[var(--shadow-lg)] p-6 border border-[var(--border-color)]">
-            <h2 className="text-xl font-semibold text-[var(--text-primary)] mb-6">📊 Recent Tests</h2>
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-xl font-semibold text-[var(--text-primary)]">📊 Recent Tests</h2>
+              <button
+                onClick={() => setTests([])}
+                className="text-xs text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition"
+              >
+                Clear all
+              </button>
+            </div>
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
@@ -604,6 +641,7 @@ export default function Home() {
                     <th className="text-left py-2 px-3 text-sm font-semibold text-[var(--text-secondary)]">Status</th>
                     <th className="text-left py-2 px-3 text-sm font-semibold text-[var(--text-secondary)]">Elapsed</th>
                     <th className="text-left py-2 px-3 text-sm font-semibold text-[var(--text-secondary)]">Stage</th>
+                    <th className="text-left py-2 px-3 text-sm font-semibold text-[var(--text-secondary)]"></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -647,11 +685,29 @@ export default function Home() {
                       <td className="py-2 px-3 text-sm text-[var(--text-secondary)] truncate max-w-xs">
                         {test.stage || '-'}
                       </td>
+                      <td className="py-2 px-3">
+                        {test.status !== 'running' && test.fullConfig && (
+                          <button
+                            onClick={() => {
+                              setTestConfig(test.fullConfig);
+                              window.scrollTo({ top: 0, behavior: 'smooth' });
+                            }}
+                            className="text-xs px-2 py-1 bg-[var(--gradient-start)] text-white rounded hover:opacity-90 transition"
+                            title="Load this test's config and run it again"
+                          >
+                            Retry
+                          </button>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
+          </div>
+        ) : (
+          <div className="bg-[var(--bg-card)] rounded-xl shadow-[var(--shadow-lg)] p-6 border border-[var(--border-color)] text-center">
+            <p className="text-[var(--text-muted)]">No tests run yet. Configure your test above and click <strong>Run Test</strong>.</p>
           </div>
         )}
       </div>
