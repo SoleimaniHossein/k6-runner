@@ -46,7 +46,7 @@ export default function K6Config({
   const [useStages, setUseStages] = useState(!!options.stages);
   const [useThresholds, setUseThresholds] = useState(!!options.thresholds);
   const [tagHint, setTagHint] = useState(false);
-  const tagHintTimer = useRef<ReturnType<typeof setTimeout>>();
+  const tagHintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const addEnv = () => {
     if (newEnvKey && newEnvValue) {
@@ -101,7 +101,7 @@ export default function K6Config({
             onChange={(e) => {
               const cleaned = e.target.value.replace(/[^a-zA-Z0-9._-]/g, '');
               if (cleaned !== e.target.value) {
-                clearTimeout(tagHintTimer.current);
+                if (tagHintTimer.current) clearTimeout(tagHintTimer.current);
                 setTagHint(true);
                 tagHintTimer.current = setTimeout(() => setTagHint(false), 2500);
               }
@@ -153,7 +153,6 @@ export default function K6Config({
                 max="65535"
                 className="w-full px-3 py-1 border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-primary)] rounded text-sm"
               />
-              <p className="text-xs text-[var(--text-muted)] mt-1">Access at http://localhost:{dashboardPort}/ui/</p>
             </div>
           )}
         </div>

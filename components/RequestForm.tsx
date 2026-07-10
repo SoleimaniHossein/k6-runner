@@ -2,6 +2,7 @@
 
 import { useState, useRef } from 'react';
 import * as XLSX from 'xlsx';
+import { parseCurlCommand } from '@/lib/curl-parser';
 
 interface RequestFormProps {
   request: {
@@ -22,6 +23,42 @@ export default function RequestForm({ request, onChange }: RequestFormProps) {
   const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
   const [excelColumns, setExcelColumns] = useState<string[]>([]);
   const [showExcelOptions, setShowExcelOptions] = useState(false);
+  const [curlInput, setCurlInput] = useState('');
+  const [showCurlImport, setShowCurlImport] = useState(false);
+  const [curlError, setCurlError] = useState<string | null>(null);
+  const urlInputRef = useRef<HTMLInputElement>(null);
+  const bodyTextareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const DYNAMIC_TOKENS = [
+    { label: 'UUID', token: '{{$uuid}}', title: 'Generate UUID v4 per iteration' },
+    { label: 'Increment', token: '{{$increment}}', title: 'Auto-incrementing number per VU' },
+    { label: 'Timestamp', token: '{{$timestamp}}', title: 'Current timestamp in ms' },
+    { label: 'Random Int', token: '{{$randomInt}}', title: 'Random integer 0-999999' },
+    { label: 'Random Str', token: '{{$randomString}}', title: 'Random alphanumeric string' },
+  ];
+
+  const insertAtCursor = (el: HTMLInputElement | HTMLTextAreaElement | null, field: string, token: string, setter: (v: string) => void) => {
+    if (!el) return;
+    el.focus();
+    const start = el.selectionStart ?? field.length;
+    const end = el.selectionEnd ?? field.length;
+
+    let success = false;
+    try {
+      success = document.execCommand('insertText', false, token);
+    } catch {}
+
+    if (success) {
+      return;
+    }
+
+    const newVal = field.slice(0, start) + token + field.slice(end);
+    setter(newVal);
+    setTimeout(() => {
+      el.focus();
+      el.selectionStart = el.selectionEnd = start + token.length;
+    }, 0);
+  };
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -95,7 +132,7 @@ export default function RequestForm({ request, onChange }: RequestFormProps) {
         }
 
         // Get column names
-        const columns = Object.keys(jsonData[0]);
+        const columns = Object.keys(jsonData[0] as Record<string, unknown>);
         setExcelColumns(columns);
 
         // Store the data and select all columns by default
@@ -160,11 +197,82 @@ export default function RequestForm({ request, onChange }: RequestFormProps) {
     }
   };
 
+  const handleCurlImport = () => {
+    const parsed = parseCurlCommand(curlInput);
+    if (parsed.error) {
+      setCurlError(parsed.error);
+      return;
+    }
+    setCurlError(null);
+    setShowCurlImport(false);
+    setCurlInput('');
+    onChange({
+      ...request,
+      method: parsed.method,
+      url: parsed.url,
+      headers: { ...request.headers, ...parsed.headers },
+      body: parsed.body,
+    });
+  };
+
   return (
     <div className="bg-[var(--bg-card)] rounded-xl shadow-[var(--shadow)] p-6 border border-[var(--border-color)]">
-      <h2 className="text-xl font-semibold text-[var(--text-primary)] mb-6 pb-2 border-b border-[var(--border-color)]">
-        📝 Request Configuration
-      </h2>
+      <div className="flex items-center justify-between mb-6 pb-2 border-b border-[var(--border-color)]">
+        <h2 className="text-xl font-semibold text-[var(--text-primary)]">
+          📝 Request Configuration
+        </h2>
+        <button
+          onClick={() => {
+            setShowCurlImport(!showCurlImport);
+            setCurlError(null);
+            if (!showCurlImport) setCurlInput('');
+          }}
+          className="text-xs px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg transition flex items-center gap-1"
+        >
+          {showCurlImport ? '✕ Close' : '⬇ Import cURL'}
+        </button>
+      </div>
+
+      {showCurlImport && (
+        <div className="mb-6 p-4 bg-amber-50 dark:bg-amber-900/20 border-2 border-amber-400 dark:border-amber-600 rounded-lg">
+          <label className="block text-sm font-medium text-[var(--text-secondary)] mb-2">
+            Paste cURL Command
+          </label>
+          <textarea
+            value={curlInput}
+            onChange={(e) => {
+              setCurlInput(e.target.value);
+              setCurlError(null);
+            }}
+            placeholder={'curl -X POST https://api.example.com/endpoint \\\n  -H \'Content-Type: application/json\' \\\n  -d \'{"key": "value"}\''}
+            rows={5}
+            className="w-full px-3 py-2 border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-primary)] rounded-lg font-mono text-sm mb-3"
+            spellCheck={false}
+          />
+          {curlError && (
+            <p className="text-sm text-red-600 dark:text-red-400 mb-2">{curlError}</p>
+          )}
+          <div className="flex gap-2">
+            <button
+              onClick={handleCurlImport}
+              disabled={!curlInput.trim()}
+              className="px-4 py-2 bg-amber-500 hover:bg-amber-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded-lg transition text-sm"
+            >
+              Import
+            </button>
+            <button
+              onClick={() => {
+                setShowCurlImport(false);
+                setCurlInput('');
+                setCurlError(null);
+              }}
+              className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-[var(--text-secondary)] rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition text-sm"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="space-y-4">
         {/* Method */}
@@ -188,14 +296,27 @@ export default function RequestForm({ request, onChange }: RequestFormProps) {
         <div>
           <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">URL</label>
           <input
+            ref={urlInputRef}
             type="text"
             value={request.url}
             onChange={(e) => onChange({ ...request, url: e.target.value })}
             placeholder="https://api.example.com/endpoint/{{id}}"
             className="w-full px-3 py-2 border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-primary)] rounded-lg"
           />
+          <div className="flex flex-wrap gap-1.5 mt-1.5">
+            {DYNAMIC_TOKENS.map(dt => (
+              <button
+                key={dt.token}
+                onClick={() => insertAtCursor(urlInputRef.current, request.url, dt.token, (v) => onChange({ ...request, url: v }))}
+                title={dt.title}
+                className="text-[10px] px-2 py-0.5 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 rounded-full hover:bg-amber-200 dark:hover:bg-amber-900/50 transition"
+              >
+                {dt.label}
+              </button>
+            ))}
+          </div>
           <p className="text-xs text-[var(--text-muted)] mt-1">
-            Use {'{{column_name}}'} as placeholder for Excel data
+            Use {'{{column_name}}'} for Excel data or click a tag above to insert dynamic values
           </p>
         </div>
 
@@ -419,7 +540,20 @@ export default function RequestForm({ request, onChange }: RequestFormProps) {
             </div>
           )}
 
+          <div className="flex flex-wrap gap-1.5 mb-2">
+            {DYNAMIC_TOKENS.map(dt => (
+              <button
+                key={dt.token}
+                onClick={() => insertAtCursor(bodyTextareaRef.current, request.body, dt.token, (v) => onChange({ ...request, body: v }))}
+                title={dt.title}
+                className="text-[10px] px-2 py-0.5 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 rounded-full hover:bg-amber-200 dark:hover:bg-amber-900/50 transition"
+              >
+                {dt.label}
+              </button>
+            ))}
+          </div>
           <textarea
+            ref={bodyTextareaRef}
             value={request.body}
             onChange={(e) => onChange({ ...request, body: e.target.value })}
             placeholder='{"key": "{{column_name}}", "value": "{{another_column}}"}'

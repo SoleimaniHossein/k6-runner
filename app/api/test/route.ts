@@ -21,9 +21,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Generate a test ID and start the test asynchronously
     const testId = uuidv4();
-    console.log(`🚀 Starting test with ID: ${testId}`);
     
     // Start the test without awaiting – it runs in the background
     runK6Test(body, testId).catch(err => {
@@ -52,25 +50,18 @@ export async function GET(request: NextRequest) {
     const action = searchParams.get('action');
     const id = searchParams.get('id');
 
-    console.log(`📡 GET /api/test: action=${action}, id=${id}`);
-
     if (action === 'status' && id) {
       const status = getTestStatus(id);
       if (!status) {
-        console.log(`❌ Test ${id} not found`);
         return NextResponse.json({ error: 'Test not found' }, { status: 404 });
       }
       
-      console.log(`📊 Status for ${id}: progress=${status.progress}, status=${status.status}`);
-      
-      // ✅ Remove circular references (process, _pollInterval, _safetyInterval)
       const { process, _pollInterval, _safetyInterval, ...cleanStatus } = status;
       
       return NextResponse.json(cleanStatus);
     }
 
     if (action === 'terminate' && id) {
-      console.log(`🛑 Terminating test ${id}`);
       const success = await terminateTest(id);
       if (!success) {
         return NextResponse.json(
@@ -83,7 +74,6 @@ export async function GET(request: NextRequest) {
 
     if (action === 'list' || !action) {
       const tests = listTests();
-      console.log(`📋 Listing ${tests.length} tests`);
       return NextResponse.json(tests);
     }
 

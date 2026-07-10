@@ -22,6 +22,7 @@ interface TestProgressProps {
   stage?: string;
   currentVUs?: number;
   isTerminating?: boolean;
+  confirmingStop?: boolean;
   elapsedTime?: string;
   remainingTime?: string;
   totalTime?: string;
@@ -35,6 +36,7 @@ export default function TestProgress({
   stage = '',
   currentVUs = 0,
   isTerminating = false,
+  confirmingStop = false,
   elapsedTime = '0s',
   remainingTime = '0s',
   totalTime = '0s',
@@ -175,10 +177,16 @@ export default function TestProgress({
         <button
           onClick={onTerminate}
           disabled={isTerminating}
-          className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
+          className={`px-4 py-2 text-white rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed ${
+            confirmingStop
+              ? 'bg-red-600 hover:bg-red-700 animate-pulse'
+              : 'bg-red-500 hover:bg-red-600'
+          }`}
         >
           {isTerminating ? (
             <><span className="animate-spin inline-block mr-2">⏳</span> Terminating...</>
+          ) : confirmingStop ? (
+            <><span className="inline-block mr-2">⚠️</span> Click again to stop</>
           ) : (
             '⏹️ Stop Test'
           )}
