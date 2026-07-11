@@ -146,14 +146,14 @@ export default function KeyValueEditor({
                 type="text"
                 value={key}
                 onChange={(e) => updateKey(key, e.target.value)}
-                className="flex-1 px-3 py-1.5 border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-primary)] rounded-lg text-sm font-mono"
+                className="flex-1 px-3 py-1.5 bg-[var(--bg-input)] text-[var(--text-primary)] border border-[var(--border-color)] rounded-lg text-sm font-mono focus:outline-none focus:border-violet-500"
                 placeholder={placeholderKey}
               />
               <input
                 type="text"
                 value={value}
                 onChange={(e) => updateValue(key, e.target.value)}
-                className="flex-1 px-3 py-1.5 border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-primary)] rounded-lg text-sm font-mono"
+                className="flex-1 px-3 py-1.5 bg-[var(--bg-input)] text-[var(--text-primary)] border border-[var(--border-color)] rounded-lg text-sm font-mono focus:outline-none focus:border-violet-500"
                 placeholder={placeholderValue}
               />
               <button
@@ -174,14 +174,14 @@ export default function KeyValueEditor({
           value={newKey}
           onChange={(e) => setNewKey(e.target.value)}
           placeholder={placeholderKey}
-          className="flex-1 px-3 py-1.5 border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-primary)] rounded-lg text-sm font-mono"
+          className="flex-1 px-3 py-1.5 bg-[var(--bg-input)] text-[var(--text-primary)] border border-[var(--border-color)] rounded-lg text-sm font-mono focus:outline-none focus:border-violet-500"
         />
         <input
           type="text"
           value={newValue}
           onChange={(e) => setNewValue(e.target.value)}
           placeholder={placeholderValue}
-          className="flex-1 px-3 py-1.5 border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-primary)] rounded-lg text-sm font-mono"
+          className="flex-1 px-3 py-1.5 bg-[var(--bg-input)] text-[var(--text-primary)] border border-[var(--border-color)] rounded-lg text-sm font-mono focus:outline-none focus:border-violet-500"
         />
         <button
           onClick={addPair}

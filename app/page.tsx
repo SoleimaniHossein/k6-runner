@@ -1,12 +1,15 @@
-// app/page.tsx
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { Rocket, Play, Square, RotateCcw, LayoutDashboard, X, Clock, Activity, Trash2, ExternalLink } from 'lucide-react';
 import RequestForm from '@/components/RequestForm';
 import K6Config from '@/components/K6Config';
 import TestProgress from '@/components/TestProgress';
 import TestResults from '@/components/TestResults';
 import ThemeToggle from '@/components/ThemeToggle';
+import Badge from '@/components/ui/Badge';
+import Card from '@/components/ui/Card';
+import Button from '@/components/ui/Button';
 
 interface TestConfig {
   request: {
@@ -65,7 +68,6 @@ export default function Home() {
     runnerTag: 'login-test-001',
   });
 
-  // UI State
   const [isRunning, setIsRunning] = useState(false);
   const [testId, setTestId] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
@@ -91,7 +93,6 @@ export default function Home() {
   const testIdRef = useRef(testId);
   testIdRef.current = testId;
 
-  // Load persisted state
   useEffect(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
@@ -117,42 +118,18 @@ export default function Home() {
     }
   }, []);
 
-  // Persist state
   useEffect(() => {
     try {
       const state = {
-        testId,
-        isRunning,
-        progress,
-        statusMessage,
-        currentStage,
-        liveMetrics,
-        currentVUs,
-        dashboardUrl,
-        showDashboard,
-        elapsedTime,
-        remainingTime,
-        totalTime,
-        timestamp: Date.now(),
+        testId, isRunning, progress, statusMessage, currentStage,
+        liveMetrics, currentVUs, dashboardUrl, showDashboard,
+        elapsedTime, remainingTime, totalTime, timestamp: Date.now(),
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     } catch (error) {
       console.error('Error persisting state:', error);
     }
-  }, [
-    testId,
-    isRunning,
-    progress,
-    statusMessage,
-    currentStage,
-    liveMetrics,
-    currentVUs,
-    dashboardUrl,
-    showDashboard,
-    elapsedTime,
-    remainingTime,
-    totalTime,
-  ]);
+  }, [testId, isRunning, progress, statusMessage, currentStage, liveMetrics, currentVUs, dashboardUrl, showDashboard, elapsedTime, remainingTime, totalTime]);
 
   const loadTests = useCallback(async () => {
     try {
@@ -161,7 +138,6 @@ export default function Home() {
       const data = await response.json();
       if (isMounted.current) {
         setTests(Array.isArray(data) ? data : []);
-        // Auto-resume a running test from another tab
         const running = Array.isArray(data) ? data.find((t: any) => t.status === 'running') : null;
         if (running && !testId) {
           setTestId(running.id);
@@ -188,18 +164,13 @@ export default function Home() {
     }
   }, [testId]);
 
-  useEffect(() => {
-    loadTests();
-  }, [loadTests]);
+  useEffect(() => { loadTests(); }, [loadTests]);
 
   useEffect(() => {
     return () => {
       isMounted.current = false;
       if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current);
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current);
-        pollIntervalRef.current = null;
-      }
+      if (pollIntervalRef.current) { clearInterval(pollIntervalRef.current); pollIntervalRef.current = null; }
     };
   }, []);
 
@@ -211,111 +182,61 @@ export default function Home() {
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && !isRunning && !loading) {
-        runTest();
-      }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && !isRunning && !loading) runTest();
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   });
 
-  // Refresh the tests list when test starts or completes
-  useEffect(() => {
-    loadTests();
-  }, [isRunning, loadTests]);
+  useEffect(() => { loadTests(); }, [isRunning, loadTests]);
 
-  /**
-   * Central update function
-   */
   const updateState = useCallback((data: any) => {
     if (!isMounted.current) return;
 
-    if (data.error) {
-      setError(data.error);
-      setIsRunning(false);
-      setTestId(null);
-      return;
-    }
-
-    // Update progress
-    if (data.progress !== undefined) {
-      setProgress(data.progress);
-    }
-
-    if (data.stage) {
-      setCurrentStage(data.stage);
-    }
-
-    if (data.metrics) {
-      setLiveMetrics(data.metrics);
-      if (data.metrics.vus !== undefined) {
-        setCurrentVUs(data.metrics.vus);
-      }
-    }
-
-    if (data.status) {
-      setStatusMessage(data.status);
-    }
+    if (data.error) { setError(data.error); setIsRunning(false); setTestId(null); return; }
+    if (data.progress !== undefined) setProgress(data.progress);
+    if (data.stage) setCurrentStage(data.stage);
+    if (data.metrics) { setLiveMetrics(data.metrics); if (data.metrics.vus !== undefined) setCurrentVUs(data.metrics.vus); }
+    if (data.status) setStatusMessage(data.status);
 
     if (data.elapsedSeconds !== undefined) {
       const mins = Math.floor(data.elapsedSeconds / 60);
       const secs = data.elapsedSeconds % 60;
       setElapsedTime(mins > 0 ? `${mins}m${secs}s` : `${secs}s`);
     }
-
     if (data.remainingSeconds !== undefined) {
       const mins = Math.floor(data.remainingSeconds / 60);
       const secs = data.remainingSeconds % 60;
       setRemainingTime(mins > 0 ? `${mins}m${secs}s` : `${secs}s`);
     }
-
     if (data.totalDurationSeconds !== undefined) {
       const mins = Math.floor(data.totalDurationSeconds / 60);
       const secs = data.totalDurationSeconds % 60;
       setTotalTime(mins > 0 ? `${mins}m${secs}s` : `${secs}s`);
     }
 
-    // Keep the recent tests list in sync with live progress
     if (data.id) {
       setTests(prev => {
         const entry = {
-          id: data.id,
-          status: data.status || 'running',
-          progress: data.progress ?? 0,
-          config: data.config?.request?.url || data.config || '',
-          stage: data.stage || '',
-          elapsedSeconds: data.elapsedSeconds,
-          remainingSeconds: data.remainingSeconds,
-          totalDurationSeconds: data.totalDurationSeconds,
-          fullConfig: data.config,
+          id: data.id, status: data.status || 'running', progress: data.progress ?? 0,
+          config: data.config?.request?.url || data.config || '', stage: data.stage || '',
+          elapsedSeconds: data.elapsedSeconds, remainingSeconds: data.remainingSeconds,
+          totalDurationSeconds: data.totalDurationSeconds, fullConfig: data.config,
         };
-        const filtered = prev.filter(t => t.id !== data.id);
-        return [entry, ...filtered];
+        return [entry, ...prev.filter(t => t.id !== data.id)];
       });
     }
 
-    if (data.dashboardUrl) {
-      setDashboardUrl(resolveDashboardUrl(data.dashboardUrl));
-    }
+    if (data.dashboardUrl) setDashboardUrl(resolveDashboardUrl(data.dashboardUrl));
+    if (data.status === 'running') setIsRunning(true);
 
-    // ✅ Keep isRunning true if status is running
-    if (data.status === 'running') {
-      setIsRunning(true);
-    }
-
-    if (data.complete || data.status === 'completed' || 
-        data.status === 'failed' || data.status === 'terminated') {
+    if (data.complete || data.status === 'completed' || data.status === 'failed' || data.status === 'terminated') {
       setIsRunning(false);
       setTestResults(data);
       setTestId(null);
       setLiveMetrics({});
       setIsTerminating(false);
-
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current);
-        pollIntervalRef.current = null;
-      }
-
+      if (pollIntervalRef.current) { clearInterval(pollIntervalRef.current); pollIntervalRef.current = null; }
       loadTests();
     }
   }, [loadTests]);
@@ -325,38 +246,21 @@ export default function Home() {
 
   useEffect(() => {
     if (!isRunning || !testId) return;
-
     let cancelled = false;
-    let pollCount = 0;
-
     const poll = async () => {
       if (cancelled) return;
-      pollCount++;
       try {
         const res = await fetch(`/api/test?action=status&id=${testId}`);
-        if (!res.ok) {
-          if (res.status === 404) return;
-          return;
-        }
+        if (!res.ok) return;
         const data = await res.json();
         updateStateRef.current(data);
-      } catch {
-        // ignore polling errors
-      }
+      } catch { }
     };
-
     const interval = setInterval(poll, 200);
     poll();
-
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
+    return () => { cancelled = true; clearInterval(interval); };
   }, [isRunning, testId]);
 
-  /**
-   * Start test
-   */
   const runTest = async () => {
     setIsRunning(true);
     setLoading(true);
@@ -370,14 +274,11 @@ export default function Home() {
     setRemainingTime('0s');
     setTotalTime(testConfig.options.duration || '10s');
 
-    // Dashboard URL
     if (testConfig.useDashboard) {
       const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
       const port = testConfig.dashboardPort || 5665;
-      const url = `http://${host}:${port}/ui/`;
-      setDashboardUrl(url);
+      setDashboardUrl(`http://${host}:${port}/ui/`);
     }
-    
     setShowDashboard(false);
     setIsTerminating(false);
 
@@ -387,12 +288,10 @@ export default function Home() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(testConfig),
       });
-
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.message || 'Failed to start test');
       }
-
       const data = await response.json();
       if (data.success && data.id) {
         setTestId(data.id);
@@ -417,39 +316,26 @@ export default function Home() {
 
   const terminateTest = async () => {
     if (!testId || isTerminating) return;
-
     if (!confirmingStop) {
       setConfirmingStop(true);
       if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current);
       confirmTimerRef.current = setTimeout(() => setConfirmingStop(false), 3000);
       return;
     }
-
     setConfirmingStop(false);
     setIsTerminating(true);
-
     try {
       const response = await fetch(`/api/test?action=terminate&id=${testId}`);
-      
       if (response.ok) {
-        setIsRunning(false);
-        setTestId(null);
-        setLiveMetrics({});
-        setShowDashboard(false);
+        setIsRunning(false); setTestId(null); setLiveMetrics({}); setShowDashboard(false);
         setStatusMessage('Test terminated');
-
-        if (pollIntervalRef.current) {
-          clearInterval(pollIntervalRef.current);
-          pollIntervalRef.current = null;
-        }
-
+        if (pollIntervalRef.current) { clearInterval(pollIntervalRef.current); pollIntervalRef.current = null; }
         await loadTests();
       } else {
         const err = await response.json();
         setError(`Terminate failed: ${err.error || 'Unknown error'}`);
       }
-    } catch (error) {
-      console.error('❌ Terminate error:', error);
+    } catch {
       setError('Failed to terminate test');
     } finally {
       setIsTerminating(false);
@@ -460,34 +346,46 @@ export default function Home() {
     if (!seconds || seconds < 0) return '0s';
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
-    return mins > 0 ? `${mins}m${secs}s` : `${secs}s`;
+    return mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
   };
 
   const resolveDashboardUrl = (url: string | undefined) => {
     if (!url) return undefined;
     try {
       const u = new URL(url);
-      if (u.hostname === 'localhost' || u.hostname === '127.0.0.1') {
-        u.hostname = window.location.hostname;
-      }
+      if (u.hostname === 'localhost' || u.hostname === '127.0.0.1') u.hostname = window.location.hostname;
       return u.toString();
-    } catch {
-      return url;
+    } catch { return url; }
+  };
+
+  const statusBadgeVariant = (status: string) => {
+    switch (status) {
+      case 'running': return 'running';
+      case 'completed': return 'completed';
+      case 'failed': return 'failed';
+      case 'terminated': return 'terminated';
+      default: return 'default';
     }
   };
 
   return (
-    <main className="min-h-screen bg-[var(--bg-primary)] text-[var(--text-primary)] transition-colors duration-300">
-      <header className="bg-gradient-to-r from-[var(--gradient-start)] to-[var(--gradient-end)] text-white shadow-lg">
-        <div className="container mx-auto px-4 py-6">
-          <div className="flex justify-between items-center">
+    <main className="min-h-screen bg-[var(--bg-primary)]">
+      {/* Header */}
+      <header className="sticky top-0 z-50 border-b border-[var(--border-color)] bg-[var(--bg-card)]/80 backdrop-blur-xl">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between h-16">
             <div className="flex items-center gap-3">
-              <span className="text-3xl">🚀</span>
-              <h1 className="text-3xl font-bold">K6 Test Runner</h1>
+              <div className="flex items-center justify-center w-9 h-9 rounded-xl bg-gradient-to-br from-violet-600 to-blue-600 shadow-md shadow-violet-500/20">
+                <Rocket className="h-5 w-5 text-white" />
+              </div>
+              <div>
+                <h1 className="text-lg font-bold text-[var(--text-primary)] tracking-tight">K6 Runner</h1>
+              </div>
               {isRunning && (
-                <span className="ml-3 px-3 py-1 bg-white/20 rounded-full text-sm animate-pulse">
-                  ⏳ Running
-                </span>
+                <Badge variant="running" pulse>
+                  <Activity className="h-3 w-3" />
+                  Running
+                </Badge>
               )}
             </div>
             <ThemeToggle />
@@ -495,19 +393,20 @@ export default function Home() {
         </div>
       </header>
 
-      <div className="container mx-auto px-4 py-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        {/* Error */}
         {error && (
-          <div className="mb-6 p-4 bg-red-100 dark:bg-red-900/30 border border-red-400 dark:border-red-700 text-red-700 dark:text-red-300 rounded-lg">
-            ❌ {error}
-            <button onClick={() => setError(null)} className="float-right font-bold">✕</button>
+          <div className="mb-6 flex items-center gap-3 px-4 py-3 bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-900 rounded-xl text-sm text-red-700 dark:text-red-300">
+            <span className="flex-1">{error}</span>
+            <button onClick={() => setError(null)} className="p-1 hover:bg-red-100 dark:hover:bg-red-900/50 rounded-lg transition">
+              <X className="h-4 w-4" />
+            </button>
           </div>
         )}
 
+        {/* Config Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-          <RequestForm
-            request={testConfig.request}
-            onChange={(request) => setTestConfig({ ...testConfig, request })}
-          />
+          <RequestForm request={testConfig.request} onChange={(request) => setTestConfig({ ...testConfig, request })} />
           <K6Config
             options={testConfig.options}
             envVars={testConfig.env}
@@ -528,183 +427,154 @@ export default function Home() {
 
         {/* Dashboard iframe */}
         {showDashboard && dashboardUrl && (
-          <div className="mb-8 bg-[var(--bg-card)] rounded-xl shadow-[var(--shadow-lg)] border border-[var(--border-color)] overflow-hidden">
-            <div className="flex justify-between items-center p-4 border-b border-[var(--border-color)]">
+          <Card noPadding className="mb-8">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border-color)]">
               <div className="flex items-center gap-2">
-                <span className="text-xl">📊</span>
-                <h3 className="text-lg font-semibold text-[var(--text-primary)]">
-                  K6 Live Dashboard
-                </h3>
-                {isRunning && (
-                  <span className="ml-2 px-2 py-1 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 text-xs rounded-full animate-pulse">
-                    Live
-                  </span>
-                )}
+                <LayoutDashboard className="h-4 w-4 text-[var(--text-muted)]" />
+                <span className="text-sm font-medium text-[var(--text-primary)]">K6 Live Dashboard</span>
+                {isRunning && <Badge variant="completed" pulse>Live</Badge>}
               </div>
-              <button
-                onClick={() => setShowDashboard(false)}
-                className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition text-[var(--text-secondary)]"
-              >
-                ✕
+              <button onClick={() => setShowDashboard(false)} className="p-1 hover:bg-[var(--bg-hover)] rounded-lg transition text-[var(--text-muted)]">
+                <X className="h-4 w-4" />
               </button>
             </div>
-            <div className="relative" style={{ height: '600px' }}>
-              <iframe
-                src={dashboardUrl}
-                className="w-full h-full border-0"
-                title="K6 Web Dashboard"
-                sandbox="allow-scripts allow-same-origin"
-                allow="same-origin"
-              />
+            <div style={{ height: '600px' }}>
+              <iframe src={dashboardUrl} className="w-full h-full border-0" title="K6 Web Dashboard" sandbox="allow-scripts allow-same-origin" allow="same-origin" />
             </div>
-          </div>
+          </Card>
         )}
 
-        {/* Progress Bar */}
+        {/* Test Progress */}
         {isRunning && (
           <div id="test-progress">
-          <TestProgress
-            progress={progress}
-            status={statusMessage || 'Running...'}
-            onTerminate={terminateTest}
-            metrics={liveMetrics}
-            stage={currentStage}
-            currentVUs={currentVUs}
-            isTerminating={isTerminating}
-            confirmingStop={confirmingStop}
-            elapsedTime={elapsedTime}
-            remainingTime={remainingTime}
-            totalTime={totalTime}
-          />
+            <TestProgress
+              progress={progress}
+              status={statusMessage || 'Running...'}
+              onTerminate={terminateTest}
+              metrics={liveMetrics}
+              stage={currentStage}
+              currentVUs={currentVUs}
+              isTerminating={isTerminating}
+              confirmingStop={confirmingStop}
+              elapsedTime={elapsedTime}
+              remainingTime={remainingTime}
+              totalTime={totalTime}
+            />
           </div>
         )}
 
-        {/* Action buttons */}
-        <div className="flex gap-4 mb-8 flex-wrap">
-          <button
+        {/* Action Buttons */}
+        <div className="flex items-center gap-3 mb-8">
+          <Button
             onClick={runTest}
             disabled={isRunning || loading}
-            className="px-8 py-3 bg-gradient-to-r from-[var(--gradient-start)] to-[var(--gradient-end)] text-white font-semibold rounded-lg hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            loading={loading}
+            icon={!loading ? <Play className="h-4 w-4" /> : undefined}
+            size="lg"
           >
-            {loading ? (
-              <><span className="animate-spin">⏳</span> Starting...</>
-            ) : isRunning ? (
-              <><span className="animate-pulse">⏳</span> Running...</>
-            ) : (
-              <><span>▶️</span> Run Test</>
-            )}
-          </button>
+            {loading ? 'Starting...' : isRunning ? 'Running...' : 'Run Test'}
+          </Button>
 
           {dashboardUrl && !showDashboard && (
-            <button
+            <Button
+              variant="secondary"
               onClick={() => setShowDashboard(true)}
               disabled={!isRunning}
-              title={!isRunning ? 'Start a test first to view the dashboard' : ''}
-              className="px-8 py-3 bg-green-500 hover:bg-green-600 text-white font-semibold rounded-lg transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              icon={<ExternalLink className="h-4 w-4" />}
+              size="lg"
             >
-              <span>📊</span> View Dashboard
-            </button>
+              Dashboard
+            </Button>
           )}
 
           {isRunning && (
-            <button
+            <Button
+              variant="danger"
               onClick={terminateTest}
               disabled={isTerminating}
-              className={`px-8 py-3 font-semibold rounded-lg transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${
-                confirmingStop
-                  ? 'bg-red-600 hover:bg-red-700 text-white animate-pulse'
-                  : 'bg-red-500 hover:bg-red-600 text-white'
-              }`}
-              title={confirmingStop ? 'Click again to confirm' : 'Stop the running test'}
+              loading={isTerminating}
+              icon={!isTerminating ? <Square className="h-4 w-4" /> : undefined}
+              size="lg"
+              className={confirmingStop ? 'animate-pulse' : ''}
             >
-              {isTerminating ? (
-                <><span className="animate-spin">⏳</span> Terminating...</>
-              ) : confirmingStop ? (
-                <><span>⚠️</span> Click again to stop</>
-              ) : (
-                <><span>⏹️</span> Stop Test</>
-              )}
-            </button>
+              {isTerminating ? 'Terminating...' : confirmingStop ? 'Confirm Stop' : 'Stop Test'}
+            </Button>
           )}
+
+          <div className="ml-auto text-xs text-[var(--text-muted)] hidden sm:block">
+            <kbd className="px-1.5 py-0.5 bg-[var(--bg-hover)] border border-[var(--border-color)] rounded text-[10px] font-mono">Ctrl+Enter</kbd>
+            {' '}to run
+          </div>
         </div>
 
+        {/* Test Results */}
         {testResults && <TestResults results={testResults} />}
 
+        {/* Recent Tests */}
         {tests.length > 0 ? (
-          <div className="bg-[var(--bg-card)] rounded-xl shadow-[var(--shadow-lg)] p-6 border border-[var(--border-color)]">
-            <div className="flex justify-between items-center mb-6">
-              <h2 className="text-xl font-semibold text-[var(--text-primary)]">📊 Recent Tests</h2>
+          <Card noPadding className="overflow-hidden">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--border-color)]">
+              <div className="flex items-center gap-2">
+                <Clock className="h-4 w-4 text-[var(--text-muted)]" />
+                <h2 className="text-sm font-semibold text-[var(--text-primary)]">Recent Tests</h2>
+                <span className="text-xs text-[var(--text-muted)]">({tests.length})</span>
+              </div>
               <button
                 onClick={() => setTests([])}
-                className="text-xs text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition"
+                className="flex items-center gap-1 text-xs text-[var(--text-muted)] hover:text-[var(--danger)] transition px-2 py-1 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/50"
               >
-                Clear all
+                <Trash2 className="h-3 w-3" />
+                Clear
               </button>
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full">
+              <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-[var(--border-color)]">
-                    <th className="text-left py-2 px-3 text-sm font-semibold text-[var(--text-secondary)]">ID</th>
-                    <th className="text-left py-2 px-3 text-sm font-semibold text-[var(--text-secondary)]">URL</th>
-                    <th className="text-left py-2 px-3 text-sm font-semibold text-[var(--text-secondary)]">Progress</th>
-                    <th className="text-left py-2 px-3 text-sm font-semibold text-[var(--text-secondary)]">Status</th>
-                    <th className="text-left py-2 px-3 text-sm font-semibold text-[var(--text-secondary)]">Elapsed</th>
-                    <th className="text-left py-2 px-3 text-sm font-semibold text-[var(--text-secondary)]">Stage</th>
-                    <th className="text-left py-2 px-3 text-sm font-semibold text-[var(--text-secondary)]"></th>
+                  <tr className="border-b border-[var(--border-color)] bg-[var(--bg-hover)]/50">
+                    <th className="text-left py-2.5 px-4 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider">ID</th>
+                    <th className="text-left py-2.5 px-4 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider">URL</th>
+                    <th className="text-left py-2.5 px-4 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider">Progress</th>
+                    <th className="text-left py-2.5 px-4 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider">Status</th>
+                    <th className="text-left py-2.5 px-4 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider">Elapsed</th>
+                    <th className="text-left py-2.5 px-4 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider">Stage</th>
+                    <th className="py-2.5 px-4"></th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody className="divide-y divide-[var(--border-color)]">
                   {tests.slice(0, 10).map((test) => (
-                    <tr key={test.id} className="border-b border-[var(--border-color)] hover:bg-[var(--bg-hover)] transition">
-                      <td className="py-2 px-3 text-sm font-mono text-[var(--text-secondary)]">
-                        {test.id.substring(0, 8)}
-                      </td>
-                      <td className="py-2 px-3 text-sm text-[var(--text-primary)] truncate max-w-xs">
-                        {test.config}
-                      </td>
-                      <td className="py-2 px-3">
+                    <tr key={test.id} className="hover:bg-[var(--bg-hover)]/50 transition-colors">
+                      <td className="py-2.5 px-4 font-mono text-xs text-[var(--text-muted)]">{test.id.substring(0, 8)}</td>
+                      <td className="py-2.5 px-4 text-[var(--text-secondary)] truncate max-w-[200px]">{test.config}</td>
+                      <td className="py-2.5 px-4">
                         <div className="flex items-center gap-2">
-                          <div className="w-24 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                          <div className="w-20 h-1.5 bg-[var(--bg-hover)] rounded-full overflow-hidden">
                             <div
-                              className="h-full bg-gradient-to-r from-[var(--gradient-start)] to-[var(--gradient-end)] transition-all duration-300"
+                              className="h-full bg-gradient-to-r from-violet-600 to-blue-600 rounded-full transition-all duration-300"
                               style={{ width: `${test.progress || 0}%` }}
                             />
                           </div>
-                          <span className="text-xs font-medium text-[var(--text-secondary)]">
-                            {test.progress || 0}%
-                          </span>
+                          <span className="text-xs text-[var(--text-muted)] tabular-nums">{test.progress || 0}%</span>
                         </div>
                       </td>
-                      <td className="py-2 px-3">
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium capitalize ${
-                          test.status === 'running'
-                            ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 animate-pulse'
-                            : test.status === 'completed'
-                            ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'
-                            : test.status === 'failed'
-                            ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300'
-                            : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
-                        }`}>
+                      <td className="py-2.5 px-4">
+                        <Badge variant={statusBadgeVariant(test.status)} pulse={test.status === 'running'}>
                           {test.status}
-                        </span>
+                        </Badge>
                       </td>
-                      <td className="py-2 px-3 text-sm text-[var(--text-secondary)]">
+                      <td className="py-2.5 px-4 text-xs text-[var(--text-muted)] tabular-nums">
                         {test.elapsedSeconds ? formatTime(test.elapsedSeconds) : '-'}
                       </td>
-                      <td className="py-2 px-3 text-sm text-[var(--text-secondary)] truncate max-w-xs">
+                      <td className="py-2.5 px-4 text-xs text-[var(--text-muted)] truncate max-w-[120px]">
                         {test.stage || '-'}
                       </td>
-                      <td className="py-2 px-3">
+                      <td className="py-2.5 px-4">
                         {test.status !== 'running' && test.fullConfig && (
                           <button
-                            onClick={() => {
-                              setTestConfig(test.fullConfig);
-                              window.scrollTo({ top: 0, behavior: 'smooth' });
-                            }}
-                            className="text-xs px-2 py-1 bg-[var(--gradient-start)] text-white rounded hover:opacity-90 transition"
+                            onClick={() => { setTestConfig(test.fullConfig); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                            className="flex items-center gap-1 text-xs text-violet-600 dark:text-violet-400 hover:text-violet-700 dark:hover:text-violet-300 transition px-2 py-1 rounded-lg hover:bg-violet-50 dark:hover:bg-violet-950/50"
                             title="Load this test's config and run it again"
                           >
+                            <RotateCcw className="h-3 w-3" />
                             Retry
                           </button>
                         )}
@@ -714,11 +584,19 @@ export default function Home() {
                 </tbody>
               </table>
             </div>
-          </div>
+          </Card>
         ) : (
-          <div className="bg-[var(--bg-card)] rounded-xl shadow-[var(--shadow-lg)] p-6 border border-[var(--border-color)] text-center">
-            <p className="text-[var(--text-muted)]">No tests run yet. Configure your test above and click <strong>Run Test</strong>.</p>
-          </div>
+          <Card className="text-center py-12">
+            <div className="flex flex-col items-center gap-3">
+              <div className="flex items-center justify-center w-12 h-12 rounded-2xl bg-[var(--bg-hover)]">
+                <Activity className="h-6 w-6 text-[var(--text-muted)]" />
+              </div>
+              <div>
+                <p className="text-sm text-[var(--text-secondary)]">No tests run yet</p>
+                <p className="text-xs text-[var(--text-muted)] mt-1">Configure your test above and click Run Test</p>
+              </div>
+            </div>
+          </Card>
         )}
       </div>
     </main>

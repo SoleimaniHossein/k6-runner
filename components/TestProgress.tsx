@@ -1,5 +1,8 @@
-// components/TestProgress.tsx
 'use client';
+
+import { Activity, Clock, Users, AlertTriangle, CheckCircle2, ArrowDown, ArrowUp, Square } from 'lucide-react';
+import Card from '@/components/ui/Card';
+import Button from '@/components/ui/Button';
 
 interface TestProgressProps {
   progress: number;
@@ -29,179 +32,100 @@ interface TestProgressProps {
 }
 
 export default function TestProgress({
-  progress,
-  status,
-  onTerminate,
-  metrics = {},
-  stage = '',
-  currentVUs = 0,
-  isTerminating = false,
-  confirmingStop = false,
-  elapsedTime = '0s',
-  remainingTime = '0s',
-  totalTime = '0s',
+  progress, status, onTerminate, metrics = {}, stage = '', currentVUs = 0,
+  isTerminating = false, confirmingStop = false,
+  elapsedTime = '0s', remainingTime = '0s', totalTime = '0s',
 }: TestProgressProps) {
-  // Calculate RPS (Requests Per Second) from rate
   const rps = metrics.http_reqs_rate || metrics.http_reqs || 0;
-  
-  // Calculate TPS (Transactions Per Second) from rate
   const tps = metrics.iterations_rate || metrics.iterations || 0;
+  const failureRate = metrics.http_req_failed !== undefined ? metrics.http_req_failed * 100 : 0;
+  const checksPass = metrics.checks !== undefined ? metrics.checks * 100 : 100;
 
-  // Calculate failure rate percentage
-  const failureRate = metrics.http_req_failed !== undefined 
-    ? metrics.http_req_failed * 100 
-    : 0;
-
-  // Calculate checks pass rate
-  const checksPass = metrics.checks !== undefined 
-    ? metrics.checks * 100 
-    : 100;
+  const metricCards = [
+    { label: 'RPS', value: rps > 0 ? rps.toFixed(1) : '0.0', icon: Activity },
+    { label: 'TPS', value: tps > 0 ? tps.toFixed(1) : '0.0', icon: Activity },
+    ...(metrics.http_req_duration !== undefined ? [{ label: 'Avg Duration', value: `${metrics.http_req_duration.toFixed(1)}ms`, icon: Clock }] : []),
+    ...(currentVUs > 0 ? [{ label: 'VUs', value: String(Math.round(currentVUs)), icon: Users }] : []),
+    {
+      label: 'Failures',
+      value: `${failureRate.toFixed(2)}%`,
+      icon: AlertTriangle,
+      color: failureRate > 1 ? 'text-red-500' : failureRate > 0.1 ? 'text-amber-500' : 'text-emerald-500',
+    },
+    {
+      label: 'Checks',
+      value: `${checksPass.toFixed(1)}%`,
+      icon: CheckCircle2,
+      color: 'text-emerald-500',
+    },
+    ...(metrics.data_received_rate !== undefined ? [{ label: 'Received', value: `${(metrics.data_received_rate / 1024).toFixed(1)} KB/s`, icon: ArrowDown }] : []),
+    ...(metrics.data_sent_rate !== undefined ? [{ label: 'Sent', value: `${(metrics.data_sent_rate / 1024).toFixed(1)} KB/s`, icon: ArrowUp }] : []),
+  ];
 
   return (
-    <div className="bg-[var(--bg-card)] rounded-xl shadow-[var(--shadow-lg)] p-6 border border-[var(--border-color)] mb-8 transition-colors">
-      {/* Header: Status and percentage */}
-      <div className="flex justify-between items-center mb-2">
-        <h3 className="text-lg font-semibold text-[var(--gradient-start)]">
-          {status || '🔄 Running...'}
-        </h3>
-        <span className="text-2xl font-bold text-[var(--gradient-start)]">
-          {Math.round(progress)}%
-        </span>
-      </div>
-
-      {/* Stage information and time */}
-      <div className="flex justify-between items-center mb-3">
-        {stage && (
-          <div className="text-sm text-[var(--text-secondary)] font-mono">
-            {stage}
+    <Card className="mb-8">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-3">
+          <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-gradient-to-br from-violet-600 to-blue-600">
+            <Activity className="h-4 w-4 text-white animate-pulse" />
           </div>
-        )}
-        <div className="text-sm text-[var(--text-secondary)] font-mono">
-          ⏱️ {elapsedTime} / {totalTime} (Remaining: {remainingTime})
+          <div>
+            <h3 className="text-sm font-semibold text-[var(--text-primary)]">{status || 'Running...'}</h3>
+            {stage && <p className="text-xs text-[var(--text-muted)] font-mono mt-0.5">{stage}</p>}
+          </div>
+        </div>
+        <div className="text-right">
+          <div className="text-2xl font-bold bg-gradient-to-r from-violet-600 to-blue-600 bg-clip-text text-transparent">
+            {Math.round(progress)}%
+          </div>
         </div>
       </div>
 
-      {/* Progress bar with animated shimmer */}
-      <div className="relative w-full h-4 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+      {/* Progress Bar */}
+      <div className="relative w-full h-2.5 bg-[var(--bg-hover)] rounded-full overflow-hidden mb-4">
         <div
-          className="absolute top-0 left-0 h-full bg-gradient-to-r from-[var(--gradient-start)] to-[var(--gradient-end)] transition-all duration-300"
+          className="absolute inset-y-0 left-0 bg-gradient-to-r from-violet-600 to-blue-600 rounded-full transition-all duration-300 ease-out"
           style={{ width: `${Math.min(progress, 100)}%` }}
         >
-          <div className="absolute top-0 left-0 right-0 bottom-0 bg-gradient-to-r from-transparent via-white/30 to-transparent animate-shimmer" />
+          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/25 to-transparent" style={{ animation: 'shimmer 1.5s infinite' }} />
         </div>
       </div>
 
-      {/* Live metrics grid - 4 columns */}
-      <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3">
-        {/* RPS - Requests Per Second */}
-        <div className="p-2 bg-gray-50 dark:bg-gray-900/50 rounded border border-[var(--border-color)]">
-          <div className="text-xs text-[var(--text-secondary)]">RPS</div>
-          <div className="text-sm font-semibold text-[var(--text-primary)]">
-            {rps > 0 ? rps.toFixed(1) : '0.0'}
-          </div>
-        </div>
-
-        {/* TPS - Transactions Per Second */}
-        <div className="p-2 bg-gray-50 dark:bg-gray-900/50 rounded border border-[var(--border-color)]">
-          <div className="text-xs text-[var(--text-secondary)]">TPS</div>
-          <div className="text-sm font-semibold text-[var(--text-primary)]">
-            {tps > 0 ? tps.toFixed(1) : '0.0'}
-          </div>
-        </div>
-
-        {/* HTTP Duration */}
-        {metrics.http_req_duration !== undefined && (
-          <div className="p-2 bg-gray-50 dark:bg-gray-900/50 rounded border border-[var(--border-color)]">
-            <div className="text-xs text-[var(--text-secondary)]">HTTP Duration</div>
-            <div className="text-sm font-semibold text-[var(--text-primary)]">
-              avg={metrics.http_req_duration.toFixed(2)}ms
-            </div>
-          </div>
-        )}
-
-        {/* VUs */}
-        {currentVUs > 0 && (
-          <div className="p-2 bg-gray-50 dark:bg-gray-900/50 rounded border border-[var(--border-color)]">
-            <div className="text-xs text-[var(--text-secondary)]">VUs</div>
-            <div className="text-sm font-semibold text-[var(--text-primary)]">
-              {Math.round(currentVUs)}
-            </div>
-          </div>
-        )}
-
-        {/* Failure Rate */}
-        <div className="p-2 bg-gray-50 dark:bg-gray-900/50 rounded border border-[var(--border-color)]">
-          <div className="text-xs text-[var(--text-secondary)]">Failure Rate</div>
-          <div className={`text-sm font-semibold ${
-            failureRate > 1
-              ? 'text-red-600 dark:text-red-400'
-              : failureRate > 0.1
-              ? 'text-yellow-600 dark:text-yellow-400'
-              : 'text-green-600 dark:text-green-400'
-          }`}>
-            {failureRate.toFixed(2)}%
-          </div>
-        </div>
-
-        {/* Checks Pass Rate */}
-        <div className="p-2 bg-gray-50 dark:bg-gray-900/50 rounded border border-[var(--border-color)]">
-          <div className="text-xs text-[var(--text-secondary)]">Checks Pass</div>
-          <div className="text-sm font-semibold text-green-600 dark:text-green-400">
-            {checksPass.toFixed(1)}%
-          </div>
-        </div>
-
-        {/* Data Received */}
-        {metrics.data_received_rate !== undefined && (
-          <div className="p-2 bg-gray-50 dark:bg-gray-900/50 rounded border border-[var(--border-color)]">
-            <div className="text-xs text-[var(--text-secondary)]">Data Received</div>
-            <div className="text-sm font-semibold text-[var(--text-primary)]">
-              {(metrics.data_received_rate / 1024).toFixed(1)} KB/s
-            </div>
-          </div>
-        )}
-
-        {/* Data Sent */}
-        {metrics.data_sent_rate !== undefined && (
-          <div className="p-2 bg-gray-50 dark:bg-gray-900/50 rounded border border-[var(--border-color)]">
-            <div className="text-xs text-[var(--text-secondary)]">Data Sent</div>
-            <div className="text-sm font-semibold text-[var(--text-primary)]">
-              {(metrics.data_sent_rate / 1024).toFixed(1)} KB/s
-            </div>
-          </div>
-        )}
+      {/* Time */}
+      <div className="flex items-center justify-between mb-4 text-xs text-[var(--text-muted)]">
+        <span className="font-mono tabular-nums">{elapsedTime} elapsed</span>
+        <span className="font-mono tabular-nums">{remainingTime} remaining</span>
+        <span className="font-mono tabular-nums">/ {totalTime}</span>
       </div>
 
-      {/* Stop button */}
-      <div className="mt-4 flex justify-end">
-        <button
+      {/* Metrics Grid */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
+        {metricCards.map((m) => (
+          <div key={m.label} className="flex items-center gap-2.5 p-2.5 bg-[var(--bg-hover)] rounded-lg">
+            <m.icon className={`h-4 w-4 shrink-0 ${m.color || 'text-[var(--text-muted)]'}`} />
+            <div className="min-w-0">
+              <div className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider">{m.label}</div>
+              <div className={`text-sm font-semibold tabular-nums ${m.color || 'text-[var(--text-primary)]'}`}>{m.value}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Stop */}
+      <div className="flex justify-end">
+        <Button
+          variant="danger"
+          size="sm"
           onClick={onTerminate}
           disabled={isTerminating}
-          className={`px-4 py-2 text-white rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed ${
-            confirmingStop
-              ? 'bg-red-600 hover:bg-red-700 animate-pulse'
-              : 'bg-red-500 hover:bg-red-600'
-          }`}
+          loading={isTerminating}
+          icon={!isTerminating ? <Square className="h-3.5 w-3.5" /> : undefined}
+          className={confirmingStop ? 'animate-pulse' : ''}
         >
-          {isTerminating ? (
-            <><span className="animate-spin inline-block mr-2">⏳</span> Terminating...</>
-          ) : confirmingStop ? (
-            <><span className="inline-block mr-2">⚠️</span> Click again to stop</>
-          ) : (
-            '⏹️ Stop Test'
-          )}
-        </button>
+          {isTerminating ? 'Terminating...' : confirmingStop ? 'Confirm Stop' : 'Stop Test'}
+        </Button>
       </div>
-
-      <style jsx>{`
-        @keyframes shimmer {
-          0% { transform: translateX(-100%); }
-          100% { transform: translateX(100%); }
-        }
-        .animate-shimmer {
-          animation: shimmer 1.5s infinite;
-        }
-      `}</style>
-    </div>
+    </Card>
   );
 }
