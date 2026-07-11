@@ -1,4 +1,3 @@
-// components/ThemeToggle.tsx
 'use client';
 
 import { useEffect, useState } from 'react';
@@ -21,13 +20,13 @@ export default function ThemeToggle() {
   };
 
   if (!mounted) {
-    return <div className="w-9 h-9 p-2 rounded-lg bg-gray-200 dark:bg-gray-700" />;
+    return <div className="w-9 h-9 rounded-xl bg-[var(--bg-hover)]" />;
   }
 
   return (
     <button
       onClick={toggle}
-      className="p-2 rounded-lg bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 transition-all duration-200"
+      className="relative p-2 rounded-xl bg-[var(--bg-hover)] hover:bg-[var(--border-color)] transition-colors duration-150"
       aria-label="Toggle theme"
     >
       <div className="relative w-5 h-5">

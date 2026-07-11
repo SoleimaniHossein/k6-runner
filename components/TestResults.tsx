@@ -1,19 +1,30 @@
-// components/TestResults.tsx
 'use client';
+
+import { CheckCircle2, XCircle, Clock, Hash, BarChart3, Terminal } from 'lucide-react';
+import Card, { CardHeader, CardTitle } from '@/components/ui/Card';
+import Badge from '@/components/ui/Badge';
 
 interface TestResultsProps {
   results: any;
 }
 
 export default function TestResults({ results }: TestResultsProps) {
-  const getStatusColor = (status: string) => {
-    const colors: Record<string, string> = {
-      completed: 'text-green-600 dark:text-green-400',
-      failed: 'text-red-600 dark:text-red-400',
-      terminated: 'text-yellow-600 dark:text-yellow-400',
-      error: 'text-red-600 dark:text-red-400',
-    };
-    return colors[status] || 'text-gray-600 dark:text-gray-400';
+  const statusIcon = (status: string) => {
+    switch (status) {
+      case 'completed': return <CheckCircle2 className="h-5 w-5 text-emerald-500" />;
+      case 'failed': return <XCircle className="h-5 w-5 text-red-500" />;
+      case 'terminated': return <Clock className="h-5 w-5 text-amber-500" />;
+      default: return <Hash className="h-5 w-5 text-[var(--text-muted)]" />;
+    }
+  };
+
+  const statusVariant = (status: string) => {
+    switch (status) {
+      case 'completed': return 'completed' as const;
+      case 'failed': return 'failed' as const;
+      case 'terminated': return 'terminated' as const;
+      default: return 'default' as const;
+    }
   };
 
   const formatDuration = () => {
@@ -25,43 +36,49 @@ export default function TestResults({ results }: TestResultsProps) {
   };
 
   return (
-    <div className="bg-[var(--bg-card)] rounded-xl shadow-[var(--shadow-lg)] p-6 border border-[var(--border-color)] mb-8">
-      <h2 className="text-xl font-semibold text-[var(--text-primary)] mb-6 pb-2 border-b border-[var(--border-color)]">
-        📊 Test Results
-      </h2>
+    <Card className="mb-8">
+      <CardHeader>
+        <CardTitle icon={<BarChart3 className="h-4 w-4 text-violet-500" />}>
+          Test Results
+        </CardTitle>
+        <Badge variant={statusVariant(results.status)}>{results.status}</Badge>
+      </CardHeader>
 
-      <div className="grid grid-cols-3 gap-4 mb-6 p-4 bg-gray-50 dark:bg-gray-900/50 rounded-lg">
-        <div>
-          <div className="text-sm text-[var(--text-secondary)]">Status</div>
-          <div className={`text-lg font-semibold ${getStatusColor(results.status)}`}>
-            {results.status}
+      {/* Summary */}
+      <div className="grid grid-cols-3 gap-4 mb-6">
+        <div className="flex items-center gap-3 p-3 bg-[var(--bg-hover)] rounded-xl">
+          {statusIcon(results.status)}
+          <div>
+            <div className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider">Status</div>
+            <div className="text-sm font-semibold text-[var(--text-primary)] capitalize">{results.status}</div>
           </div>
         </div>
-        <div>
-          <div className="text-sm text-[var(--text-secondary)]">Duration</div>
-          <div className="text-lg font-semibold text-[var(--text-primary)]">
-            {formatDuration()}
+        <div className="flex items-center gap-3 p-3 bg-[var(--bg-hover)] rounded-xl">
+          <Clock className="h-5 w-5 text-blue-500" />
+          <div>
+            <div className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider">Duration</div>
+            <div className="text-sm font-semibold text-[var(--text-primary)] tabular-nums">{formatDuration()}</div>
           </div>
         </div>
-        <div>
-          <div className="text-sm text-[var(--text-secondary)]">Exit Code</div>
-          <div className="text-lg font-semibold text-[var(--text-primary)]">
-            {results.exitCode}
+        <div className="flex items-center gap-3 p-3 bg-[var(--bg-hover)] rounded-xl">
+          <Hash className="h-5 w-5 text-violet-500" />
+          <div>
+            <div className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider">Exit Code</div>
+            <div className="text-sm font-semibold text-[var(--text-primary)] tabular-nums">{results.exitCode}</div>
           </div>
         </div>
       </div>
 
+      {/* Metrics */}
       {results.metrics && Object.keys(results.metrics).length > 0 && (
         <div className="mb-6">
-          <h3 className="text-sm font-semibold text-[var(--text-secondary)] mb-3">
-            Performance Metrics
-          </h3>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <h3 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-3">Performance Metrics</h3>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             {Object.entries(results.metrics).map(([key, value]: [string, any]) => (
-              <div key={key} className="p-3 bg-gray-50 dark:bg-gray-900/50 rounded-lg">
-                <div className="text-xs text-[var(--text-muted)] truncate">{key}</div>
-                <div className="text-sm font-semibold text-[var(--text-primary)]">
-                  {typeof value === 'number' ? value.toFixed(2) : value}
+              <div key={key} className="p-2.5 bg-[var(--bg-hover)] rounded-lg">
+                <div className="text-[10px] text-[var(--text-muted)] truncate">{key}</div>
+                <div className="text-sm font-semibold text-[var(--text-primary)] tabular-nums">
+                  {typeof value === 'number' ? value.toFixed(2) : String(value)}
                 </div>
               </div>
             ))}
@@ -69,14 +86,18 @@ export default function TestResults({ results }: TestResultsProps) {
         </div>
       )}
 
+      {/* Stdout */}
       {results.stdout && (
         <div>
-          <h3 className="text-sm font-semibold text-[var(--text-secondary)] mb-2">Output</h3>
-          <pre className="bg-gray-900 dark:bg-black text-gray-100 p-4 rounded-lg overflow-x-auto text-sm max-h-96 overflow-y-auto">
+          <div className="flex items-center gap-1.5 mb-2">
+            <Terminal className="h-3.5 w-3.5 text-[var(--text-muted)]" />
+            <h3 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider">Output</h3>
+          </div>
+          <pre className="bg-zinc-950 text-zinc-100 p-4 rounded-xl overflow-x-auto text-xs leading-relaxed max-h-96 overflow-y-auto font-mono">
             {results.stdout}
           </pre>
         </div>
       )}
-    </div>
+    </Card>
   );
 }
