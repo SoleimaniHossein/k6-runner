@@ -169,7 +169,7 @@ export default function K6Config({
 
         {/* Integrations */}
         <div className="space-y-3 pt-2">
-          <div className="p-3 border rounded-xl space-y-3" style={{ background: 'var(--panel-dashboard-bg)', borderColor: 'var(--panel-dashboard-border)' }}>
+          <div className="p-3 border rounded-xl space-y-3" style={{ background: 'var(--panel-bg)', borderColor: 'var(--panel-border)' }}>
             <Toggle
               checked={!!useDashboard}
               onChange={() => onChange({ useDashboard: !useDashboard })}
@@ -189,7 +189,7 @@ export default function K6Config({
             )}
           </div>
 
-          <div className="p-3 border rounded-xl space-y-3" style={{ background: 'var(--panel-dashboard-bg)', borderColor: 'var(--panel-dashboard-border)' }}>
+          <div className="p-3 border rounded-xl space-y-3" style={{ background: 'var(--panel-bg)', borderColor: 'var(--panel-border)' }}>
             <Toggle
               checked={!!useRestAPI}
               onChange={() => onChange({ useRestAPI: !useRestAPI })}
@@ -212,7 +212,7 @@ export default function K6Config({
             )}
           </div>
 
-          <div className="p-3 border rounded-xl space-y-3" style={{ background: 'var(--panel-dashboard-bg)', borderColor: 'var(--panel-dashboard-border)' }}>
+          <div className="p-3 border rounded-xl space-y-3" style={{ background: 'var(--panel-bg)', borderColor: 'var(--panel-border)' }}>
             <Toggle
               checked={!!useInfluxDB}
               onChange={() => onChange({ useInfluxDB: !useInfluxDB })}

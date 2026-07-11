@@ -147,7 +147,7 @@ export default function RequestForm({ request, onChange }: RequestFormProps) {
 
       {/* cURL Import */}
       {showCurlImport && (
-        <div className="mb-4 p-4 border rounded-xl" style={{ background: 'var(--panel-dashboard-bg)', borderColor: 'var(--panel-dashboard-border)' }}>
+        <div className="mb-4 p-4 border rounded-xl" style={{ background: 'var(--panel-bg)', borderColor: 'var(--panel-border)' }}>
           <label className="block text-sm font-medium text-[var(--text-secondary)] mb-2">Paste cURL Command</label>
           <textarea
             value={curlInput}

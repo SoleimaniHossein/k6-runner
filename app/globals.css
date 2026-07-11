@@ -48,18 +48,9 @@
   --token-bg-hover: #ddd6fe;
   --token-border-hover: #a78bfa;
 
-  /* cURL import */
-  --curl-bg: #f1f5f9;
-  --curl-border: #cbd5e1;
-
-
   /* Integration panels */
-  --panel-dashboard-bg: #eff6ff;
-  --panel-dashboard-border: #bfdbfe;
-  --panel-restapi-bg: #f0fdf4;
-  --panel-restapi-border: #bbf7d0;
-  --panel-influxdb-bg: #fefce8;
-  --panel-influxdb-border: #fde68a;
+  --panel-bg: #f3eefa;
+  --panel-border: #c4b5fd;
 }
 
 /* Dark theme */
@@ -110,18 +101,9 @@
   --token-bg-hover: rgba(91,33,182,0.5);
   --token-border-hover: #8b5cf6;
 
-  /* cURL import — exact original dark: Tailwind values */
-  --curl-bg: rgba(69,26,3,0.3);
-  --curl-border: #78350f;
-
-
   /* Integration panels */
-  --panel-dashboard-bg: rgba(30,58,138,0.2);
-  --panel-dashboard-border: #1e40af;
-  --panel-restapi-bg: rgba(6,78,59,0.2);
-  --panel-restapi-border: #065f46;
-  --panel-influxdb-bg: rgba(146,64,14,0.2);
-  --panel-influxdb-border: #92400e;
+  --panel-bg: #2c1a4c2e;
+  --panel-border: #7c3aed70;
 }
 
 body {
