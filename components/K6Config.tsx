@@ -1,9 +1,10 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { Settings, Users, Timer, Plus, X, ChevronDown, ChevronRight } from 'lucide-react';
+import { Settings, Users, Timer, Plus, X, ChevronDown, ChevronRight, ChevronUp } from 'lucide-react';
 import Card, { CardHeader, CardTitle } from '@/components/ui/Card';
 import Input from '@/components/ui/Input';
+import NumberInput from '@/components/ui/NumberInput';
 import Select from '@/components/ui/Select';
 import Textarea from '@/components/ui/Textarea';
 import Toggle from '@/components/ui/Toggle';
@@ -77,12 +78,11 @@ export default function K6Config({
       <div className="space-y-4">
         {/* VUs + Duration */}
         <div className="grid grid-cols-2 gap-3">
-          <Input
+          <NumberInput
             label="Virtual Users"
-            type="number"
             value={options.vus}
-            onChange={(e) => onChange({ options: { ...options, vus: parseInt(e.target.value) || 1 } })}
-            min="1"
+            onChange={(v) => onChange({ options: { ...options, vus: v } })}
+            min={1}
             icon={<Users className="h-4 w-4 text-[var(--text-muted)]" />}
           />
           <div>
@@ -98,16 +98,37 @@ export default function K6Config({
                 const units = ['ms', 's', 'm', 'h'] as const;
                 return (
                   <>
-                    <input
-                      type="number"
-                      min="1"
-                      value={num}
-                      onChange={(e) => {
-                        const v = parseInt(e.target.value) || 1;
-                        onChange({ options: { ...options, duration: `${v}${unit}` } });
-                      }}
-                      className="flex-1 px-2.5 py-2 bg-[var(--bg-input)] text-[var(--text-primary)] text-sm font-mono focus:outline-none min-w-0"
-                    />
+                    <div className="relative flex-1 min-w-0 group">
+                      <input
+                        type="number"
+                        min="1"
+                        value={num}
+                        onChange={(e) => {
+                          const v = parseInt(e.target.value) || 1;
+                          onChange({ options: { ...options, duration: `${v}${unit}` } });
+                        }}
+                        className="w-full px-2.5 py-2 pr-8 bg-[var(--bg-input)] text-[var(--text-primary)] text-sm font-mono focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                      />
+                      <div className="absolute right-0 top-0 h-full flex flex-col border-l border-[var(--border-color)] opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+                        <button
+                          type="button"
+                          onClick={() => onChange({ options: { ...options, duration: `${Math.max(1, num + 1)}${unit}` } })}
+                          className="flex-1 flex items-center justify-center w-5 hover:bg-[var(--bg-hover)] transition-colors text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                          tabIndex={-1}
+                        >
+                          <ChevronUp className="h-2.5 w-2.5" />
+                        </button>
+                        <div className="h-px bg-[var(--border-color)]" />
+                        <button
+                          type="button"
+                          onClick={() => onChange({ options: { ...options, duration: `${Math.max(1, num - 1)}${unit}` } })}
+                          className="flex-1 flex items-center justify-center w-5 hover:bg-[var(--bg-hover)] transition-colors text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                          tabIndex={-1}
+                        >
+                          <ChevronDown className="h-2.5 w-2.5" />
+                        </button>
+                      </div>
+                    </div>
                     <div className="h-6 w-px bg-[var(--border-color)]" />
                     <div className="relative" ref={unitDropdownRef}>
                       <button
@@ -178,13 +199,12 @@ export default function K6Config({
               activeColor="bg-violet-600"
             />
             {useDashboard && (
-              <Input
+              <NumberInput
                 label="Dashboard Port"
-                type="number"
                 value={dashboardPort}
-                onChange={(e) => onChange({ dashboardPort: parseInt(e.target.value) || 5665 })}
-                min="1024"
-                max="65535"
+                onChange={(v) => onChange({ dashboardPort: v })}
+                min={1024}
+                max={65535}
               />
             )}
           </div>
@@ -199,13 +219,12 @@ export default function K6Config({
             />
             {useRestAPI && (
               <div className="space-y-1.5">
-                <Input
+                <NumberInput
                   label="REST API Port"
-                  type="number"
                   value={restAPIPort}
-                  onChange={(e) => onChange({ restAPIPort: parseInt(e.target.value) || 6565 })}
-                  min="1024"
-                  max="65535"
+                  onChange={(v) => onChange({ restAPIPort: v })}
+                  min={1024}
+                  max={65535}
                 />
                 <p className="text-[10px] text-[var(--text-muted)] font-mono">localhost:{restAPIPort}/v1/status</p>
               </div>
