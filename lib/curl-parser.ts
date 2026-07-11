@@ -128,3 +128,30 @@ export function parseCurlCommand(input: string): ParsedCurl {
 
   return result;
 }
+
+export function parseMultipleCurlCommands(input: string): ParsedCurl[] {
+  const trimmed = input.trim();
+  if (!trimmed) return [];
+
+  const blocks = trimmed.split(/\n\s*\n/).filter(b => b.trim());
+  if (blocks.length === 0) return [];
+
+  if (blocks.length === 1) {
+    const result = parseCurlCommand(blocks[0]);
+    if (result.error) return [];
+    return [result];
+  }
+
+  const results: ParsedCurl[] = [];
+  for (const block of blocks) {
+    const singleLine = block.replace(/\\\n/g, ' ').replace(/\n/g, ' ').trim();
+    if (!singleLine) continue;
+    if (!singleLine.toLowerCase().includes('curl')) continue;
+    const result = parseCurlCommand(singleLine);
+    if (!result.error && result.url) {
+      results.push(result);
+    }
+  }
+
+  return results;
+}

@@ -7,16 +7,21 @@ import { EventEmitter } from 'events';
 import { createReadStream } from 'fs';
 import readline from 'readline';
 
+export interface RequestConfig {
+  id?: string;
+  method: string;
+  url: string;
+  headers: Record<string, string>;
+  body?: string;
+  excelData?: any[];
+  useExcelLoop?: boolean;
+  selectedExcelColumns?: string[];
+  extract?: { name: string; expression: string }[];
+}
+
 export interface TestConfig {
-  request: {
-    method: string;
-    url: string;
-    headers: Record<string, string>;
-    body?: string;
-    excelData?: any[];
-    useExcelLoop?: boolean;
-    selectedExcelColumns?: string[];
-  };
+  request: RequestConfig;
+  requests?: RequestConfig[];
   options: {
     vus: number;
     duration: string;
@@ -339,6 +344,152 @@ function generateScriptWithExcelData(config: TestConfig, excelData: any[], selec
   return script;
 }
 
+function generateMultiRequestScript(config: TestConfig, requests: RequestConfig[]): string {
+  const { options = {}, env = {} } = config;
+
+  let script = `import http from 'k6/http';\n`;
+  script += `import { check, sleep } from 'k6';\n`;
+  script += `import exec from 'k6/execution';\n`;
+  script += dynamicHelpers();
+
+  const cleanOptions: any = { ...options };
+  if (cleanOptions.stages) {
+    try { cleanOptions.stages = JSON.parse(cleanOptions.stages); } catch { delete cleanOptions.stages; }
+  }
+  if (cleanOptions.thresholds) {
+    try { cleanOptions.thresholds = JSON.parse(cleanOptions.thresholds); } catch { delete cleanOptions.thresholds; }
+  }
+  Object.keys(cleanOptions).forEach(key => {
+    if (cleanOptions[key] === '' || cleanOptions[key] === null || cleanOptions[key] === undefined) {
+      delete cleanOptions[key];
+    }
+  });
+
+  if (Object.keys(cleanOptions).length > 0) {
+    script += `export const options = ${JSON.stringify(cleanOptions, null, 2)};\n\n`;
+  }
+
+  if (Object.keys(env).length > 0) {
+    Object.entries(env).forEach(([key, value]) => {
+      script += `const ${key} = __ENV.${key} || '${value}';\n`;
+    });
+    script += '\n';
+  }
+
+  const hasExtractors = requests.some(r => r.extract && r.extract.length > 0);
+  const hasRefs = requests.some(r => {
+    const refRe = /\{%req\d+\.\w+%\}/;
+    return refRe.test(r.url) || refRe.test(r.body || '') || refRe.test(JSON.stringify(r.headers));
+  });
+
+  script += `export default function() {\n`;
+  script += `  const vu = __VU;\n`;
+  script += `  const iter = __ITER;\n`;
+  script += `  const progress = exec.scenario.progress;\n`;
+  script += `  const percent = Math.round(progress * 100);\n`;
+  script += `  console.log(JSON.stringify({ type: 'progress', percent, vu, iter, timestamp: Date.now() }));\n\n`;
+
+  if (hasExtractors || hasRefs) {
+    script += `  function $extractJSONPath(body, path) {
+    try {
+      const obj = JSON.parse(body);
+      const parts = path.split('.');
+      let val = obj;
+      for (const p of parts) val = val[p];
+      return val !== undefined ? String(val) : '';
+    } catch { return ''; }
+  }
+
+`;
+  }
+
+  const hasReqRef = (s: string) => /\{%req\d+\.\w+%\}/.test(s);
+  const replaceReqRefs = (s: string) => s.replace(/\{%req(\d+)\.(\w+)%\}/g, (_, ri, vn) => `\${$$req${ri}_${vn}}`);
+
+  requests.forEach((req, idx) => {
+    const n = idx + 1;
+
+    script += `  // Request ${n}: ${req.method} ${req.url.substring(0, 60)}\n`;
+
+    if (hasDynamicVars(req.url) || hasReqRef(req.url)) {
+      let urlTemplate = req.url;
+      if (hasDynamicVars(urlTemplate)) urlTemplate = replaceDynamicTokens(urlTemplate);
+      if (hasReqRef(urlTemplate)) urlTemplate = replaceReqRefs(urlTemplate);
+      script += `  const url${n} = \`${urlTemplate}\`;\n`;
+    } else {
+      script += `  const url${n} = '${req.url}';\n`;
+    }
+
+    if (req.body) {
+      try {
+        JSON.parse(req.body);
+        let bodyStr = JSON.stringify(JSON.parse(req.body));
+        const bodyDyn = hasDynamicVars(bodyStr);
+        if (bodyDyn) bodyStr = replaceDynamicJSON(bodyStr);
+        if (hasReqRef(bodyStr)) bodyStr = replaceReqRefs(bodyStr);
+        if (bodyDyn || hasReqRef(bodyStr)) {
+          script += `  const payload${n} = JSON.parse(\`${bodyStr}\`);\n`;
+        } else {
+          script += `  const payload${n} = ${bodyStr};\n`;
+        }
+      } catch {
+        if (hasReqRef(req.body) || hasDynamicVars(req.body)) {
+          let bodyTemplate = req.body;
+          if (hasDynamicVars(bodyTemplate)) bodyTemplate = replaceDynamicTokens(bodyTemplate);
+          if (hasReqRef(bodyTemplate)) bodyTemplate = replaceReqRefs(bodyTemplate);
+          script += `  const payload${n} = \`${bodyTemplate}\`;\n`;
+        } else {
+          script += `  const payload${n} = '${req.body.replace(/'/g, "\\'")}';\n`;
+        }
+      }
+    } else {
+      script += `  const payload${n} = null;\n`;
+    }
+
+    if (req.headers && Object.keys(req.headers).length > 0) {
+      let headersStr = JSON.stringify(req.headers);
+      const headersDyn = hasDynamicVars(headersStr);
+      if (headersDyn) headersStr = replaceDynamicJSON(headersStr);
+      if (hasReqRef(headersStr)) headersStr = replaceReqRefs(headersStr);
+      if (headersDyn || hasReqRef(headersStr)) {
+        script += `  const headers${n} = JSON.parse(\`${headersStr}\`);\n`;
+      } else {
+        script += `  const headers${n} = ${headersStr};\n`;
+      }
+    } else {
+      script += `  const headers${n} = { 'Content-Type': 'application/json' };\n`;
+    }
+
+    const method = req.method.toUpperCase();
+    switch (method) {
+      case 'GET': script += `  const res${n} = http.get(url${n}, { headers: headers${n} });\n`; break;
+      case 'POST': script += `  const res${n} = http.post(url${n}, JSON.stringify(payload${n}), { headers: headers${n} });\n`; break;
+      case 'PUT': script += `  const res${n} = http.put(url${n}, JSON.stringify(payload${n}), { headers: headers${n} });\n`; break;
+      case 'DELETE': script += `  const res${n} = http.del(url${n}, null, { headers: headers${n} });\n`; break;
+      case 'PATCH': script += `  const res${n} = http.patch(url${n}, JSON.stringify(payload${n}), { headers: headers${n} });\n`; break;
+      default: script += `  const res${n} = http.request('${method}', url${n}, JSON.stringify(payload${n}), { headers: headers${n} });\n`;
+    }
+
+    script += `\n  check(res${n}, {\n`;
+    script += `    'req${n}: status is 200': (r) => r.status === 200,\n`;
+    script += `    'req${n}: response time < 500ms': (r) => r.timings.duration < 500,\n`;
+    script += `  });\n`;
+
+    if (req.extract && req.extract.length > 0) {
+      for (const ext of req.extract) {
+        if (ext.name && ext.expression) {
+          script += `  const $$req${n}_${ext.name} = $extractJSONPath(res${n}.body, '${ext.expression}');\n`;
+        }
+      }
+    }
+
+    script += `\n  sleep(1);\n\n`;
+  });
+
+  script += `}\n`;
+  return script;
+}
+
 function parseDurationToSeconds(duration: string): number {
   const match = duration.match(/^(\d+)(s|m|h)$/);
   if (!match) return 30;
@@ -512,9 +663,14 @@ export async function runK6Test(config: TestConfig, testId?: string): Promise<Te
                          config.request.useExcelLoop &&
                          config.request.selectedExcelColumns &&
                          config.request.selectedExcelColumns.length > 0;
+
+    const hasMultipleRequests = config.requests && config.requests.length > 1;
     
     let script: string;
-    if (hasExcelData) {
+    if (hasMultipleRequests) {
+      console.log(`📋 Using multi-request mode with ${config.requests!.length} requests`);
+      script = generateMultiRequestScript(config, config.requests!);
+    } else if (hasExcelData) {
       console.log(`📊 Using Excel data with ${config.request.excelData!.length} rows`);
       script = generateScriptWithExcelData(
         config, 
@@ -986,7 +1142,9 @@ export function listTests() {
     status,
     progress,
     startTime,
-    config: config.request.url,
+    config: config.requests && config.requests.length > 1
+      ? config.requests.map(r => r.url).join(' → ')
+      : config.request.url,
     stage: stage || '',
     dashboardUrl,
     isCompleted: isCompleted || false,

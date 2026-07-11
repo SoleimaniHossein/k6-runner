@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Rocket, Play, Square, RotateCcw, LayoutDashboard, X, Clock, Activity, Trash2, ExternalLink } from 'lucide-react';
-import RequestForm from '@/components/RequestForm';
+import { v4 as uuidv4 } from 'uuid';
+import RequestForm, { RequestConfig } from '@/components/RequestForm';
 import K6Config from '@/components/K6Config';
 import TestProgress from '@/components/TestProgress';
 import TestResults from '@/components/TestResults';
@@ -18,6 +19,7 @@ interface TestConfig {
     headers: Record<string, string>;
     body: string;
   };
+  requests?: RequestConfig[];
   options: {
     vus: number;
     duration: string;
@@ -41,13 +43,22 @@ interface TestConfig {
 const STORAGE_KEY = 'k6_test_state';
 
 export default function Home() {
+  const defaultRequest: RequestConfig = {
+    id: uuidv4(),
+    method: 'GET',
+    url: 'https://httpbin.io/get',
+    headers: { 'Content-Type': 'application/json' },
+    body: '',
+  };
+
   const [testConfig, setTestConfig] = useState<TestConfig>({
     request: {
-      method: 'GET',
-      url: 'https://httpbin.io/get',
-      headers: { 'Content-Type': 'application/json' },
-      body: '',
+      method: defaultRequest.method,
+      url: defaultRequest.url,
+      headers: defaultRequest.headers,
+      body: defaultRequest.body,
     },
+    requests: [defaultRequest],
     options: {
       vus: 1,
       duration: '10s',
@@ -406,7 +417,17 @@ export default function Home() {
 
         {/* Config Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-          <RequestForm request={testConfig.request} onChange={(request) => setTestConfig({ ...testConfig, request })} />
+          <RequestForm
+            requests={testConfig.requests || [testConfig.request as any]}
+            onChange={(requests) => {
+              const first = requests[0];
+              setTestConfig({
+                ...testConfig,
+                requests,
+                request: first ? { method: first.method, url: first.url, headers: first.headers, body: first.body } : testConfig.request,
+              });
+            }}
+          />
           <K6Config
             options={testConfig.options}
             envVars={testConfig.env}
@@ -570,7 +591,22 @@ export default function Home() {
                       <td className="py-2.5 px-4">
                         {test.status !== 'running' && test.fullConfig && (
                           <button
-                            onClick={() => { setTestConfig(test.fullConfig); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                            onClick={() => {
+                              const cfg = test.fullConfig;
+                              if (cfg?.requests && cfg.requests.length > 0) {
+                                setTestConfig(cfg);
+                              } else if (cfg?.request) {
+                                const req: RequestConfig = {
+                                  id: uuidv4(),
+                                  method: cfg.request.method,
+                                  url: cfg.request.url,
+                                  headers: cfg.request.headers,
+                                  body: cfg.request.body || '',
+                                };
+                                setTestConfig({ ...cfg, requests: [req], request: cfg.request });
+                              }
+                              window.scrollTo({ top: 0, behavior: 'smooth' });
+                            }}
                             className="flex items-center gap-1 text-xs text-violet-600 dark:text-violet-400 hover:text-violet-700 dark:hover:text-violet-300 transition px-2 py-1 rounded-lg hover:bg-violet-50 dark:hover:bg-violet-950/50"
                             title="Load this test's config and run it again"
                           >
