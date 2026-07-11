@@ -19,8 +19,6 @@
   --success: #22c55e;
   --danger: #ef4444;
   --danger-hover: #dc2626;
-  --icon-duration-bg: #ffffff;
-  --icon-duration-fg: #a1a1aa;
   --unit-btn-bg: rgba(124,58,237,0.75);
   --unit-btn-fg: #ffffff;
   --unit-btn-hover: rgba(109,40,217,0.75);
@@ -72,8 +70,6 @@
   --success: #22c55e;
   --danger: #ef4444;
   --danger-hover: #dc2626;
-  --icon-duration-bg: #000000;
-  --icon-duration-fg: #ffffff;
   --unit-btn-bg: rgba(76,29,149,0.4);
   --unit-btn-fg: #c4b5fd;
   --unit-btn-hover: rgba(91,33,182,0.5);

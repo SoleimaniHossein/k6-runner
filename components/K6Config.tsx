@@ -88,8 +88,8 @@ export default function K6Config({
           <div>
             <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1.5">Duration</label>
             <div className="flex items-center border border-[var(--border-color)] rounded-lg transition-colors focus-within:border-violet-500 focus-within:ring-1 focus-within:ring-violet-500/20 bg-[var(--bg-input)]">
-              <div className="flex items-center justify-center w-10 h-full shrink-0 rounded-l-lg" style={{ backgroundColor: 'var(--icon-duration-bg)', color: 'var(--icon-duration-fg)' }}>
-                <Timer className="h-4 w-4" />
+              <div className="flex items-center justify-center w-10 h-full shrink-0 rounded-l-lg">
+                <Timer className="h-4 w-4 text-[var(--text-muted)]" />
               </div>
               {(() => {
                 const match = options.duration.match(/^(\d+)(ms|s|m|h)$/);
@@ -254,9 +254,13 @@ export default function K6Config({
             <div>
               <div className="flex items-center justify-between mb-1.5">
                 <label className="text-sm font-medium text-[var(--text-secondary)]">Stages</label>
-                <Button variant="ghost" size="sm" onClick={() => setUseStages(!useStages)}>
+                <button
+                  onClick={() => setUseStages(!useStages)}
+                  className="inline-flex items-center gap-1 text-[10px] px-2.5 py-1 border border-[var(--border-color)] rounded-md font-medium transition-colors"
+                  style={{ background: 'var(--token-bg)', color: 'var(--token-fg)' }}
+                >
                   {useStages ? 'Disable' : 'Enable'}
-                </Button>
+                </button>
               </div>
               {useStages && (
                 <Textarea
@@ -272,9 +276,13 @@ export default function K6Config({
             <div>
               <div className="flex items-center justify-between mb-1.5">
                 <label className="text-sm font-medium text-[var(--text-secondary)]">Thresholds</label>
-                <Button variant="ghost" size="sm" onClick={() => setUseThresholds(!useThresholds)}>
+                <button
+                  onClick={() => setUseThresholds(!useThresholds)}
+                  className="inline-flex items-center gap-1 text-[10px] px-2.5 py-1 border border-[var(--border-color)] rounded-md font-medium transition-colors"
+                  style={{ background: 'var(--token-bg)', color: 'var(--token-fg)' }}
+                >
                   {useThresholds ? 'Disable' : 'Enable'}
-                </Button>
+                </button>
               </div>
               {useThresholds && (
                 <Textarea
