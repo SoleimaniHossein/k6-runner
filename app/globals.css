@@ -19,6 +19,11 @@
   --success: #22c55e;
   --danger: #ef4444;
   --danger-hover: #dc2626;
+  --icon-duration-bg: #ffffff;
+  --icon-duration-fg: #a1a1aa;
+  --unit-btn-bg: rgba(124,58,237,0.75);
+  --unit-btn-fg: #ffffff;
+  --unit-btn-hover: rgba(109,40,217,0.75);
 
   /* Badge & token colors */
   --badge-running-bg: #dbeafe;
@@ -69,6 +74,11 @@
   --success: #22c55e;
   --danger: #ef4444;
   --danger-hover: #dc2626;
+  --icon-duration-bg: #000000;
+  --icon-duration-fg: #ffffff;
+  --unit-btn-bg: rgba(76,29,149,0.4);
+  --unit-btn-fg: #c4b5fd;
+  --unit-btn-hover: rgba(91,33,182,0.5);
 
   /* Badge & token colors */
   --badge-running-bg: rgba(30,58,138,0.5);
@@ -146,6 +156,17 @@ select:focus-visible {
 /* Selection */
 ::selection {
   background: rgba(124, 58, 237, 0.2);
+}
+
+select option {
+  background-color: var(--bg-card);
+  color: var(--text-primary);
+  padding: 8px 12px;
+}
+
+select option:checked {
+  background-color: #7c3aed;
+  color: #ffffff;
 }
 
 /* Animated gradient for progress */

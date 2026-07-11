@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Settings, Users, Timer, Plus, X, ChevronDown, ChevronRight } from 'lucide-react';
 import Card, { CardHeader, CardTitle } from '@/components/ui/Card';
 import Input from '@/components/ui/Input';
@@ -39,6 +39,19 @@ export default function K6Config({
   const [tagHint, setTagHint] = useState(false);
   const tagHintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [unitDropdownOpen, setUnitDropdownOpen] = useState(false);
+  const unitDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!unitDropdownOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (unitDropdownRef.current && !unitDropdownRef.current.contains(e.target as Node)) {
+        setUnitDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [unitDropdownOpen]);
 
   const addEnv = () => {
     if (newEnvKey && newEnvValue) {
@@ -72,13 +85,67 @@ export default function K6Config({
             min="1"
             icon={<Users className="h-4 w-4 text-[var(--text-muted)]" />}
           />
-          <Input
-            label="Duration"
-            value={options.duration}
-            onChange={(e) => onChange({ options: { ...options, duration: e.target.value } })}
-            placeholder="30s, 1m, 2h"
-            icon={<Timer className="h-4 w-4 text-[var(--text-muted)]" />}
-          />
+          <div>
+            <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1.5">Duration</label>
+            <div className="flex items-center border border-[var(--border-color)] rounded-lg transition-colors focus-within:border-violet-500 focus-within:ring-1 focus-within:ring-violet-500/20 bg-[var(--bg-input)]">
+              <div className="flex items-center justify-center w-10 h-full shrink-0 rounded-l-lg" style={{ backgroundColor: 'var(--icon-duration-bg)', color: 'var(--icon-duration-fg)' }}>
+                <Timer className="h-4 w-4" />
+              </div>
+              {(() => {
+                const match = options.duration.match(/^(\d+)(ms|s|m|h)$/);
+                const num = match ? parseInt(match[1]) : 30;
+                const unit = match ? match[2] : 's';
+                const units = ['ms', 's', 'm', 'h'] as const;
+                return (
+                  <>
+                    <input
+                      type="number"
+                      min="1"
+                      value={num}
+                      onChange={(e) => {
+                        const v = parseInt(e.target.value) || 1;
+                        onChange({ options: { ...options, duration: `${v}${unit}` } });
+                      }}
+                      className="flex-1 px-2.5 py-2 bg-[var(--bg-input)] text-[var(--text-primary)] text-sm font-mono focus:outline-none min-w-0"
+                    />
+                    <div className="h-6 w-px bg-[var(--border-color)]" />
+                    <div className="relative" ref={unitDropdownRef}>
+                      <button
+                        type="button"
+                        onClick={() => setUnitDropdownOpen(!unitDropdownOpen)}
+                        className="h-full px-2.5 py-2 pr-7 text-sm font-semibold focus:outline-none cursor-pointer transition-colors rounded-r-lg"
+                        style={{ backgroundColor: 'rgba(124,58,237,0.75)', color: '#ffffff' }}
+                      >
+                        {unit}
+                      </button>
+                      <ChevronDown className="absolute right-1.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-white/60 pointer-events-none" />
+                      {unitDropdownOpen && (
+                        <div className="absolute right-0 top-full mt-1 z-50 bg-[var(--bg-card)] rounded-lg shadow-lg border border-[var(--border-color)] overflow-hidden min-w-[60px]">
+                          {units.map((u) => (
+                            <button
+                              key={u}
+                              type="button"
+                              onClick={() => {
+                                onChange({ options: { ...options, duration: `${num}${u}` } });
+                                setUnitDropdownOpen(false);
+                              }}
+                              className={`block w-full text-left px-3 py-1.5 text-sm font-medium transition-colors ${
+                                u === unit
+                                  ? 'bg-violet-600 text-white'
+                                  : 'text-[var(--text-primary)] hover:bg-violet-50 dark:hover:bg-violet-950/40'
+                              }`}
+                            >
+                              {u}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+          </div>
         </div>
 
         {/* Runner Tag */}
