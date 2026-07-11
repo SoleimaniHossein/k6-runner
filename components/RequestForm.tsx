@@ -147,15 +147,14 @@ export default function RequestForm({ request, onChange }: RequestFormProps) {
 
       {/* cURL Import */}
       {showCurlImport && (
-        <div className="mb-4 p-4 border border-[var(--border-color)] rounded-xl" style={{ background: 'var(--curl-bg)' }}>
+        <div className="mb-4 p-4 border rounded-xl" style={{ background: 'var(--panel-dashboard-bg)', borderColor: 'var(--panel-dashboard-border)' }}>
           <label className="block text-sm font-medium text-[var(--text-secondary)] mb-2">Paste cURL Command</label>
           <textarea
             value={curlInput}
             onChange={(e) => { setCurlInput(e.target.value); setCurlError(null); }}
             placeholder={'curl -X POST https://api.example.com/endpoint \\\n  -H \'Content-Type: application/json\' \\\n  -d \'{"key": "value"}\''}
             rows={4}
-            className="w-full px-3 py-2 rounded-lg font-mono text-sm mb-3 focus:outline-none focus:border-violet-500 text-[var(--text-primary)]"
-            style={{ background: 'var(--curl-input-bg)' }}
+            className="w-full px-3 py-2 text-sm font-mono bg-[var(--bg-input)] text-[var(--text-primary)] rounded-lg placeholder:text-[var(--text-muted)] border border-[var(--border-color)] hover:border-[var(--text-muted)] focus:outline-none focus:border-violet-500 transition-colors duration-150 mb-3 resize-y"
             spellCheck={false}
           />
           {curlError && <p className="text-sm text-red-600 dark:text-red-400 mb-2">{curlError}</p>}
