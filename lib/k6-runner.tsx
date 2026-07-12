@@ -19,6 +19,11 @@ export interface RequestConfig {
   extract?: { name: string; expression: string }[];
 }
 
+export interface CustomCheck {
+  name: string;
+  condition: string;
+}
+
 export interface TestConfig {
   request: RequestConfig;
   requests?: RequestConfig[];
@@ -28,6 +33,7 @@ export interface TestConfig {
     stages?: string;
     thresholds?: string;
   };
+  checks?: CustomCheck[];
   env: Record<string, string>;
   args: string;
   output: string;
@@ -40,6 +46,12 @@ export interface TestConfig {
   influxDBUser?: string;
   influxDBPass?: string;
   runnerTag?: string;
+}
+
+export interface CheckResult {
+  name: string;
+  passes: number;
+  fails: number;
 }
 
 export interface TestInfo {
@@ -57,6 +69,7 @@ export interface TestInfo {
   results?: string;
   config: TestConfig;
   metrics: Record<string, any>;
+  checks: Record<string, CheckResult>;
   error?: string;
   stage?: string;
   currentVUs?: number;
@@ -117,6 +130,16 @@ function $randomInt() { return Math.floor(Math.random() * 1000000); }
 function $randomString() { return Math.random().toString(36).substring(2, 10); }
 
 `;
+}
+
+function generateCheckLines(checks: CustomCheck[] | undefined, indent: string = '  '): string {
+  if (!checks || checks.length === 0) return '';
+  let lines = '';
+  for (const c of checks) {
+    const safeName = c.name.replace(/'/g, "\\'");
+    lines += `${indent}'${safeName}': ${c.condition},\n`;
+  }
+  return lines;
 }
 
 function generateScript(config: TestConfig): string {
@@ -210,6 +233,7 @@ function generateScript(config: TestConfig): string {
   script += `\n  check(res, {\n`;
   script += `    'status is 200': (r) => r.status === 200,\n`;
   script += `    'response time < 500ms': (r) => r.timings.duration < 500,\n`;
+  script += generateCheckLines(config.checks, '    ');
   script += `  });\n\n`;
   script += `  sleep(1);\n`;
   script += `}\n`;
@@ -336,6 +360,7 @@ function generateScriptWithExcelData(config: TestConfig, excelData: any[], selec
   script += `\n    check(res, {\n`;
   script += `      'status is 200': (r) => r.status === 200,\n`;
   script += `      'response time < 500ms': (r) => r.timings.duration < 500,\n`;
+  script += generateCheckLines(config.checks, '      ');
   script += `    });\n\n`;
   script += `    sleep(1);\n`;
   script += `  }\n`;
@@ -473,6 +498,7 @@ function generateMultiRequestScript(config: TestConfig, requests: RequestConfig[
     script += `\n  check(res${n}, {\n`;
     script += `    'req${n}: status is 200': (r) => r.status === 200,\n`;
     script += `    'req${n}: response time < 500ms': (r) => r.timings.duration < 500,\n`;
+    script += generateCheckLines(config.checks, '    ');
     script += `  });\n`;
 
     if (req.extract && req.extract.length > 0) {
@@ -551,6 +577,14 @@ function parseK6ConsoleLine(line: string, info: TestInfo): boolean {
         }
         return changed;
       }
+      if (data.type === 'Point' && data.metric === 'checks' && data.tags?.check) {
+        const name = data.tags.check;
+        if (!info.checks[name]) info.checks[name] = { name, passes: 0, fails: 0 };
+        if (data.data?.value === 1) info.checks[name].passes++;
+        else info.checks[name].fails++;
+        changed = true;
+        return changed;
+      }
     } catch (e) {
       // Not JSON
     }
@@ -626,8 +660,9 @@ function processMetricsFromRESTAPI(data: any, info: TestInfo): boolean {
     }
 
     if (id === 'http_req_failed' && sample.rate !== undefined) {
-      if (info.metrics.http_req_failed !== sample.rate) {
-        info.metrics.http_req_failed = sample.rate;
+      const pct = sample.rate * 100;
+      if (info.metrics.http_req_failed !== pct) {
+        info.metrics.http_req_failed = pct;
         changed = true;
       }
     }
@@ -767,6 +802,7 @@ export async function runK6Test(config: TestConfig, testId?: string): Promise<Te
           startTime: new Date().toISOString(),
           config,
           metrics: {},
+          checks: {},
           stage: '',
           currentVUs: 0,
           dashboardUrl: useDashboard ? `http://localhost:${dashboardPort}/ui/` : undefined,
@@ -807,6 +843,7 @@ export async function runK6Test(config: TestConfig, testId?: string): Promise<Te
         info._durationSeconds = durationSeconds;
         info._testCompleted = false;
         info.metrics = {};
+        info.checks = {};
         info.stage = '';
         info.currentVUs = 0;
         info.progress = 0;
@@ -934,6 +971,34 @@ export async function runK6Test(config: TestConfig, testId?: string): Promise<Te
       info._safetyInterval = safetyInterval;
 
       k6Process.on('close', async (code) => {
+        info.endTime = new Date().toISOString();
+        info.stdout = stdout;
+        info.stderr = stderr;
+
+        try {
+          await fs.access(resultsPath);
+          const results = await fs.readFile(resultsPath, 'utf-8');
+          info.results = results;
+          
+          const lines = results.split('\n').filter(line => line.trim());
+          for (const line of lines) {
+            try {
+              const data = JSON.parse(line);
+              if (data.type === 'Metric' && data.data?.value !== undefined) {
+                info.metrics[data.metric] = data.data.value;
+              }
+              if (data.type === 'Point' && data.metric === 'checks' && data.tags?.check) {
+                const name = data.tags.check;
+                if (!info.checks[name]) info.checks[name] = { name, passes: 0, fails: 0 };
+                if (data.data?.value === 1) info.checks[name].passes++;
+                else info.checks[name].fails++;
+              }
+            } catch {}
+          }
+        } catch (err) {
+          console.warn('Could not read results file:', err);
+        }
+
         if (info.status === 'running') {
           info.status = code === 0 ? 'completed' : 'failed';
           info.exitCode = code ?? undefined;
@@ -955,28 +1020,6 @@ export async function runK6Test(config: TestConfig, testId?: string): Promise<Te
           emitter.emit('update', { ...clean, complete: true });
           emitter.emit('complete', info);
           console.log(`✅ Test completed: ${info.status}`);
-        }
-
-        info.endTime = new Date().toISOString();
-        info.stdout = stdout;
-        info.stderr = stderr;
-
-        try {
-          await fs.access(resultsPath);
-          const results = await fs.readFile(resultsPath, 'utf-8');
-          info.results = results;
-          
-          const lines = results.split('\n').filter(line => line.trim());
-          for (const line of lines) {
-            try {
-              const data = JSON.parse(line);
-              if (data.type === 'Metric' && data.data?.value !== undefined) {
-                info.metrics[data.metric] = data.data.value;
-              }
-            } catch {}
-          }
-        } catch (err) {
-          console.warn('Could not read results file:', err);
         }
 
         try {

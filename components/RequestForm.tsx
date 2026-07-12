@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useCallback } from 'react';
-import { FileText, Download, Upload, X, Plus, FileSpreadsheet, Sparkles, Braces, ChevronDown, ChevronUp, Trash2, GripVertical, Variable } from 'lucide-react';
+import { FileText, Download, Upload, X, Plus, FileSpreadsheet, Sparkles, Braces, ChevronDown, ChevronUp, Trash2, GripVertical, Variable, Copy } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { v4 as uuidv4 } from 'uuid';
 import { parseCurlCommand, parseMultipleCurlCommands } from '@/lib/curl-parser';
@@ -96,6 +96,28 @@ export default function RequestForm({ requests, onChange }: RequestFormProps) {
       if (requests.length <= 1) return;
       onChange(requests.filter((r) => r.id !== id));
       setExpandedIds((prev) => { const next = new Set(prev); next.delete(id); return next; });
+    },
+    [requests, onChange]
+  );
+
+  const duplicateRequest = useCallback(
+    (id: string) => {
+      const original = requests.find((r) => r.id === id);
+      if (!original) return;
+      const duplicate: RequestConfig = {
+        ...original,
+        id: uuidv4(),
+        headers: { ...original.headers },
+        extract: original.extract?.map((e) => ({ ...e })),
+      };
+      const idx = requests.findIndex((r) => r.id === id);
+      const next = [...requests];
+      next.splice(idx + 1, 0, duplicate);
+      onChange(next);
+      setExpandedIds((prev) => new Set(prev).add(duplicate.id));
+      setTimeout(() => {
+        document.getElementById(`request-card-${duplicate.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }, 100);
     },
     [requests, onChange]
   );
@@ -234,6 +256,7 @@ export default function RequestForm({ requests, onChange }: RequestFormProps) {
             <div
               key={req.id}
               id={`request-card-${req.id}`}
+              suppressHydrationWarning
               className={`transition-all duration-150 ${dragIndex === index ? 'opacity-40 scale-[0.97]' : ''} ${isDragOver && dragIndex !== null ? 'relative' : ''}`}
               onDragOver={(e) => handleDragOver(e, index)}
               onDragLeave={handleDragLeave}
@@ -252,6 +275,7 @@ export default function RequestForm({ requests, onChange }: RequestFormProps) {
                 onToggle={() => toggleExpand(req.id)}
                 onChange={(updated) => updateRequest(req.id, updated)}
                 onRemove={() => removeRequest(req.id)}
+                onDuplicate={() => duplicateRequest(req.id)}
                 onDragStart={() => handleDragStart(index)}
                 onDragEnd={handleDragEnd}
               />
@@ -282,6 +306,7 @@ function RequestCard({
   onToggle,
   onChange,
   onRemove,
+  onDuplicate,
   onDragStart,
   onDragEnd,
 }: {
@@ -292,6 +317,7 @@ function RequestCard({
   onToggle: () => void;
   onChange: (req: RequestConfig) => void;
   onRemove: () => void;
+  onDuplicate: () => void;
   onDragStart: () => void;
   onDragEnd: () => void;
 }) {
@@ -406,6 +432,13 @@ function RequestCard({
         </span>
         <div className="flex items-center gap-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
           <button
+            onClick={onDuplicate}
+            className="p-1 rounded hover:bg-violet-50 dark:hover:bg-violet-950/50 text-[var(--text-muted)] hover:text-violet-500 transition"
+            title="Duplicate request"
+          >
+            <Copy className="h-3.5 w-3.5" />
+          </button>
+          <button
             onClick={onRemove}
             disabled={total <= 1}
             className="p-1 rounded hover:bg-red-50 dark:hover:bg-red-950/50 text-[var(--text-muted)] hover:text-red-500 disabled:opacity-20 disabled:cursor-not-allowed transition"
@@ -503,7 +536,7 @@ function RequestCard({
                 ))}
               </div>
             )}
-            <div className="flex gap-2" id={`header-add-row-${req.id}`}>
+            <div className="flex gap-2" id={`header-add-row-${req.id}`} suppressHydrationWarning>
               <input
                 type="text"
                 placeholder="Header Name"

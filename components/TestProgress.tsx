@@ -38,7 +38,7 @@ export default function TestProgress({
 }: TestProgressProps) {
   const rps = metrics.http_reqs_rate || metrics.http_reqs || 0;
   const tps = metrics.iterations_rate || metrics.iterations || 0;
-  const failureRate = metrics.http_req_failed !== undefined ? metrics.http_req_failed * 100 : 0;
+  const failureRate = metrics.http_req_failed ?? 0;
   const checksPass = metrics.checks !== undefined ? metrics.checks * 100 : 100;
 
   const metricCards = [
