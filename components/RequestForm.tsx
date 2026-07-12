@@ -4,7 +4,7 @@ import { useState, useRef, useCallback } from 'react';
 import { FileText, Download, Upload, X, Plus, FileSpreadsheet, Sparkles, Braces, ChevronDown, ChevronUp, Trash2, GripVertical, Variable } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { v4 as uuidv4 } from 'uuid';
-import { parseCurlCommand, parseMultipleCurlCommands } from '@/lib/curl-parser';
+import { parseMultipleCurlCommands } from '@/lib/curl-parser';
 import Card, { CardHeader, CardTitle } from '@/components/ui/Card';
 import Input from '@/components/ui/Input';
 import Select from '@/components/ui/Select';
@@ -149,35 +149,23 @@ export default function RequestForm({ requests, onChange }: RequestFormProps) {
   const handleCurlImport = () => {
     const parsed = parseMultipleCurlCommands(curlInput);
     if (parsed.length === 0) {
-      const single = parseCurlCommand(curlInput);
-      if (single.error) { setCurlError(single.error); return; }
-      if (!single.url) { setCurlError('No URL found'); return; }
-      const req: RequestConfig = {
-        id: uuidv4(),
-        method: single.method,
-        url: single.url,
-        headers: Object.keys(single.headers).length > 0 ? single.headers : { 'Content-Type': 'application/json' },
-        body: single.body || '',
-        extract: [],
-      };
-      onChange([...requests, req]);
-      setExpandedIds((prev) => new Set(prev).add(req.id));
-    } else {
-      const newRequests = parsed.map((p) => ({
-        id: uuidv4(),
-        method: p.method,
-        url: p.url,
-        headers: Object.keys(p.headers).length > 0 ? p.headers : { 'Content-Type': 'application/json' },
-        body: p.body || '',
-        extract: [],
-      }));
-      onChange([...requests, ...newRequests]);
-      setExpandedIds((prev) => {
-        const next = new Set(prev);
-        newRequests.forEach((r) => next.add(r.id));
-        return next;
-      });
+      setCurlError('No valid cURL commands found. Check the syntax.');
+      return;
     }
+    const newRequests = parsed.map((p) => ({
+      id: uuidv4(),
+      method: p.method,
+      url: p.url,
+      headers: Object.keys(p.headers).length > 0 ? p.headers : { 'Content-Type': 'application/json' },
+      body: p.body || '',
+      extract: [],
+    }));
+    onChange([...requests, ...newRequests]);
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      newRequests.forEach((r) => next.add(r.id));
+      return next;
+    });
     setCurlError(null);
     setShowCurlImport(false);
     setCurlInput('');
@@ -391,7 +379,10 @@ function RequestCard({
         draggable
         onDragStart={onDragStart}
         onDragEnd={onDragEnd}
-        className="flex items-center gap-2.5 px-4 py-3 cursor-grab active:cursor-grabbing select-none"
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onToggle(); }}
+        className="w-full flex items-center gap-2.5 px-4 py-3 cursor-grab active:cursor-grabbing select-none hover:bg-[var(--bg-hover)] transition-colors text-left"
         onClick={onToggle}
       >
         <div className="shrink-0 flex items-center justify-center cursor-grab active:cursor-grabbing text-[var(--text-muted)] hover:text-[var(--text-secondary)]">

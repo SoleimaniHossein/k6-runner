@@ -43,22 +43,20 @@ interface TestConfig {
 const STORAGE_KEY = 'k6_test_state';
 
 export default function Home() {
-  const defaultRequest: RequestConfig = {
-    id: uuidv4(),
-    method: 'GET',
-    url: 'https://httpbin.io/get',
-    headers: { 'Content-Type': 'application/json' },
-    body: '',
-  };
-
   const [testConfig, setTestConfig] = useState<TestConfig>({
     request: {
-      method: defaultRequest.method,
-      url: defaultRequest.url,
-      headers: defaultRequest.headers,
-      body: defaultRequest.body,
+      method: 'GET',
+      url: 'https://httpbin.io/get',
+      headers: { 'Content-Type': 'application/json' },
+      body: '',
     },
-    requests: [defaultRequest],
+    requests: [{
+      id: 'default-request',
+      method: 'GET',
+      url: 'https://httpbin.io/get',
+      headers: { 'Content-Type': 'application/json' },
+      body: '',
+    }],
     options: {
       vus: 1,
       duration: '10s',

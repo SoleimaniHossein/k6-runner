@@ -426,8 +426,9 @@ function generateMultiRequestScript(config: TestConfig, requests: RequestConfig[
         let bodyStr = JSON.stringify(JSON.parse(req.body));
         const bodyDyn = hasDynamicVars(bodyStr);
         if (bodyDyn) bodyStr = replaceDynamicJSON(bodyStr);
-        if (hasReqRef(bodyStr)) bodyStr = replaceReqRefs(bodyStr);
-        if (bodyDyn || hasReqRef(bodyStr)) {
+        const bodyRef = hasReqRef(bodyStr);
+        if (bodyRef) bodyStr = replaceReqRefs(bodyStr);
+        if (bodyDyn || bodyRef) {
           script += `  const payload${n} = JSON.parse(\`${bodyStr}\`);\n`;
         } else {
           script += `  const payload${n} = ${bodyStr};\n`;
@@ -450,8 +451,9 @@ function generateMultiRequestScript(config: TestConfig, requests: RequestConfig[
       let headersStr = JSON.stringify(req.headers);
       const headersDyn = hasDynamicVars(headersStr);
       if (headersDyn) headersStr = replaceDynamicJSON(headersStr);
-      if (hasReqRef(headersStr)) headersStr = replaceReqRefs(headersStr);
-      if (headersDyn || hasReqRef(headersStr)) {
+      const headersRef = hasReqRef(headersStr);
+      if (headersRef) headersStr = replaceReqRefs(headersStr);
+      if (headersDyn || headersRef) {
         script += `  const headers${n} = JSON.parse(\`${headersStr}\`);\n`;
       } else {
         script += `  const headers${n} = ${headersStr};\n`;
@@ -478,7 +480,9 @@ function generateMultiRequestScript(config: TestConfig, requests: RequestConfig[
     if (req.extract && req.extract.length > 0) {
       for (const ext of req.extract) {
         if (ext.name && ext.expression) {
-          script += `  const $$req${n}_${ext.name} = $extractJSONPath(res${n}.body, '${ext.expression}');\n`;
+          const varName = ext.name.replace(/[^a-zA-Z0-9_]/g, '_');
+          const exprSafe = ext.expression.replace(/'/g, "\\'");
+          script += `  const $$req${n}_${varName} = $extractJSONPath(res${n}.body, '${exprSafe}');\n`;
         }
       }
     }
