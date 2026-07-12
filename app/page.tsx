@@ -8,6 +8,7 @@ import K6Config from '@/components/K6Config';
 import TestProgress from '@/components/TestProgress';
 import TestResults from '@/components/TestResults';
 import ThemeToggle from '@/components/ThemeToggle';
+import ScrollToggle from '@/components/ScrollToggle';
 import Badge from '@/components/ui/Badge';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
@@ -690,6 +691,8 @@ export default function Home() {
           </Card>
         )}
       </div>
+
+      <ScrollToggle />
     </main>
   );
 }

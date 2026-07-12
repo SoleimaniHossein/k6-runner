@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useRef, useCallback } from 'react';
-import { FileText, Download, Upload, X, Plus, FileSpreadsheet, Sparkles, Braces, ChevronDown, ChevronUp, Trash2, GripVertical, Variable, BookOpen, Loader2, Check, Search, Copy } from 'lucide-react';
+import { useState, useRef, useCallback, useEffect } from 'react';
+import { FileText, Download, Upload, X, Plus, FileSpreadsheet, Sparkles, Braces, ChevronDown, ChevronUp, Trash2, GripVertical, Variable, BookOpen, Loader2, Check, Search, Copy, ListChevronsUpDown, ListChevronsDownUp } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { v4 as uuidv4 } from 'uuid';
 import { parseMultipleCurlCommands } from '@/lib/curl-parser';
@@ -73,6 +73,7 @@ export default function RequestForm({ requests, onChange }: RequestFormProps) {
   const [curlError, setCurlError] = useState<string | null>(null);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+
   const [showOpenAPI, setShowOpenAPI] = useState(false);
   const [openAPIUrl, setOpenAPIUrl] = useState('');
   const [openAPIJson, setOpenAPIJson] = useState('');
@@ -176,6 +177,8 @@ export default function RequestForm({ requests, onChange }: RequestFormProps) {
     setDragOverIndex(null);
   }, []);
 
+
+
   const handleCurlImport = () => {
     const parsed = parseMultipleCurlCommands(curlInput);
     if (parsed.length === 0) {
@@ -270,6 +273,7 @@ export default function RequestForm({ requests, onChange }: RequestFormProps) {
   };
 
   return (
+    <>
     <Card>
       <CardHeader>
         <CardTitle icon={<FileText className="h-4 w-4 text-violet-500" />}>
@@ -279,6 +283,23 @@ export default function RequestForm({ requests, onChange }: RequestFormProps) {
           )}
         </CardTitle>
         <div className="flex items-center gap-1">
+          {requests.length > 1 && (
+            <>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setExpandedIds(new Set(requests.map(r => r.id)))}
+                icon={<ListChevronsUpDown className="h-3.5 w-3.5" />}
+              />
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setExpandedIds(new Set())}
+                icon={<ListChevronsDownUp className="h-3.5 w-3.5" />}
+              />
+              <div className="w-px h-4 bg-[var(--border-color)]" />
+            </>
+          )}
           <Button
             variant="ghost"
             size="sm"
@@ -483,7 +504,7 @@ export default function RequestForm({ requests, onChange }: RequestFormProps) {
         })}
       </div>
 
-      <div className="mt-4 flex gap-2">
+      <div className="mt-4">
         <Button
           variant="secondary"
           size="sm"
@@ -494,6 +515,7 @@ export default function RequestForm({ requests, onChange }: RequestFormProps) {
         </Button>
       </div>
     </Card>
+    </>
   );
 }
 
