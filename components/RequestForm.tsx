@@ -1,10 +1,11 @@
 'use client';
 
 import { useState, useRef, useCallback } from 'react';
-import { FileText, Download, Upload, X, Plus, FileSpreadsheet, Sparkles, Braces, ChevronDown, ChevronUp, Trash2, GripVertical, Variable, Copy } from 'lucide-react';
+import { FileText, Download, Upload, X, Plus, FileSpreadsheet, Sparkles, Braces, ChevronDown, ChevronUp, Trash2, GripVertical, Variable, BookOpen, Loader2, Check, Search, Copy } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { v4 as uuidv4 } from 'uuid';
-import { parseCurlCommand, parseMultipleCurlCommands } from '@/lib/curl-parser';
+import { parseMultipleCurlCommands } from '@/lib/curl-parser';
+import { fetchOpenAPISpec, parseOpenAPISpec, openAPIOperationsToRequests } from '@/lib/openapi-parser';
 import Card, { CardHeader, CardTitle } from '@/components/ui/Card';
 import Input from '@/components/ui/Input';
 import Select from '@/components/ui/Select';
@@ -72,6 +73,13 @@ export default function RequestForm({ requests, onChange }: RequestFormProps) {
   const [curlError, setCurlError] = useState<string | null>(null);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  const [showOpenAPI, setShowOpenAPI] = useState(false);
+  const [openAPIUrl, setOpenAPIUrl] = useState('');
+  const [openAPIJson, setOpenAPIJson] = useState('');
+  const [openAPILoading, setOpenAPILoading] = useState(false);
+  const [openAPIError, setOpenAPIError] = useState<string | null>(null);
+  const [openAPIData, setOpenAPIData] = useState<{ title: string; operations: { method: string; path: string; summary: string; tags: string[]; headers: Record<string, string>; body: string }[] } | null>(null);
+  const [openAPISelected, setOpenAPISelected] = useState<Set<number>>(new Set());
 
   const toggleExpand = useCallback((id: string) => {
     setExpandedIds((prev) => {
@@ -171,38 +179,94 @@ export default function RequestForm({ requests, onChange }: RequestFormProps) {
   const handleCurlImport = () => {
     const parsed = parseMultipleCurlCommands(curlInput);
     if (parsed.length === 0) {
-      const single = parseCurlCommand(curlInput);
-      if (single.error) { setCurlError(single.error); return; }
-      if (!single.url) { setCurlError('No URL found'); return; }
-      const req: RequestConfig = {
-        id: uuidv4(),
-        method: single.method,
-        url: single.url,
-        headers: Object.keys(single.headers).length > 0 ? single.headers : { 'Content-Type': 'application/json' },
-        body: single.body || '',
-        extract: [],
-      };
-      onChange([...requests, req]);
-      setExpandedIds((prev) => new Set(prev).add(req.id));
-    } else {
-      const newRequests = parsed.map((p) => ({
-        id: uuidv4(),
-        method: p.method,
-        url: p.url,
-        headers: Object.keys(p.headers).length > 0 ? p.headers : { 'Content-Type': 'application/json' },
-        body: p.body || '',
-        extract: [],
-      }));
-      onChange([...requests, ...newRequests]);
-      setExpandedIds((prev) => {
-        const next = new Set(prev);
-        newRequests.forEach((r) => next.add(r.id));
-        return next;
-      });
+      setCurlError('No valid cURL commands found. Check the syntax.');
+      return;
     }
+    const newRequests = parsed.map((p) => ({
+      id: uuidv4(),
+      method: p.method,
+      url: p.url,
+      headers: Object.keys(p.headers).length > 0 ? p.headers : { 'Content-Type': 'application/json' },
+      body: p.body || '',
+      extract: [],
+    }));
+    onChange([...requests, ...newRequests]);
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      newRequests.forEach((r) => next.add(r.id));
+      return next;
+    });
     setCurlError(null);
     setShowCurlImport(false);
     setCurlInput('');
+  };
+
+  const handleOpenAPIFetch = async () => {
+    const url = openAPIUrl.trim();
+    const json = openAPIJson.trim();
+    if (!url && !json) { setOpenAPIError('Enter a URL or paste the spec JSON'); return; }
+    setOpenAPIError(null);
+    setOpenAPIData(null);
+    setOpenAPISelected(new Set());
+    setOpenAPILoading(true);
+    try {
+      let data;
+      if (json) {
+        const spec = JSON.parse(json);
+        data = parseOpenAPISpec(url || 'pasted', spec);
+      } else {
+        data = await fetchOpenAPISpec(url);
+      }
+      if (data.operations.length === 0) { setOpenAPIError('No API operations found in the spec'); setOpenAPILoading(false); return; }
+      setOpenAPIData(data);
+      setOpenAPISelected(new Set(data.operations.map((_, i) => i)));
+    } catch (err: any) {
+      setOpenAPIError(err.message || 'Failed to parse OpenAPI spec');
+    }
+    setOpenAPILoading(false);
+  };
+
+  const toggleOpenAPISelectAll = () => {
+    if (!openAPIData) return;
+    if (openAPISelected.size === openAPIData.operations.length) {
+      setOpenAPISelected(new Set());
+    } else {
+      setOpenAPISelected(new Set(openAPIData.operations.map((_, i) => i)));
+    }
+  };
+
+  const toggleOpenAPIOperation = (idx: number) => {
+    setOpenAPISelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(idx)) next.delete(idx);
+      else next.add(idx);
+      return next;
+    });
+  };
+
+  const handleOpenAPIImport = () => {
+    if (!openAPIData) return;
+    const selected = openAPIData.operations.filter((_, i) => openAPISelected.has(i));
+    if (selected.length === 0) { setOpenAPIError('No operations selected'); return; }
+    const newRequests = selected.map((op) => ({
+      id: uuidv4(),
+      method: op.method,
+      url: op.path,
+      headers: op.headers,
+      body: op.body,
+      extract: [],
+    }));
+    onChange([...requests, ...newRequests]);
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      newRequests.forEach((r) => next.add(r.id));
+      return next;
+    });
+    setShowOpenAPI(false);
+    setOpenAPIData(null);
+    setOpenAPIUrl('');
+    setOpenAPIJson('');
+    setOpenAPIError(null);
   };
 
   return (
@@ -214,14 +278,24 @@ export default function RequestForm({ requests, onChange }: RequestFormProps) {
             <span className="ml-2 text-xs font-normal text-[var(--text-muted)]">({requests.length} requests)</span>
           )}
         </CardTitle>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => { setShowCurlImport(!showCurlImport); setCurlError(null); if (!showCurlImport) setCurlInput(''); }}
-          icon={<Download className="h-3.5 w-3.5" />}
-        >
-          {showCurlImport ? 'Close' : 'Import cURLs'}
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => { setShowOpenAPI(!showOpenAPI); setShowCurlImport(false); setOpenAPIError(null); if (!showOpenAPI) { setOpenAPIData(null); setOpenAPIUrl(''); setOpenAPIJson(''); } }}
+            icon={<BookOpen className="h-3.5 w-3.5" />}
+          >
+            {showOpenAPI ? 'Close' : 'OpenAPI'}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => { setShowCurlImport(!showCurlImport); setShowOpenAPI(false); setCurlError(null); if (!showCurlImport) setCurlInput(''); }}
+            icon={<Download className="h-3.5 w-3.5" />}
+          >
+            {showCurlImport ? 'Close' : 'cURL'}
+          </Button>
+        </div>
       </CardHeader>
 
       {showCurlImport && (
@@ -245,6 +319,131 @@ export default function RequestForm({ requests, onChange }: RequestFormProps) {
             <Button size="sm" onClick={handleCurlImport} disabled={!curlInput.trim()} icon={<Download className="h-3.5 w-3.5" />}>Import</Button>
             <Button variant="ghost" size="sm" onClick={() => { setShowCurlImport(false); setCurlInput(''); setCurlError(null); }}>Cancel</Button>
           </div>
+        </div>
+      )}
+
+      {/* OpenAPI Import */}
+      {showOpenAPI && (
+        <div className="mb-4 p-4 border rounded-xl" style={{ background: 'var(--panel-bg)', borderColor: 'var(--panel-border)' }}>
+          <label className="block text-sm font-medium text-[var(--text-secondary)] mb-2">Import from OpenAPI / Swagger</label>
+          <p className="text-xs text-[var(--text-muted)] mb-3">
+            Fetch a OpenAPI spec URL or paste the raw JSON to import all endpoints at once.
+          </p>
+
+          <div className="flex gap-2 mb-2">
+            <input
+              type="text"
+              value={openAPIUrl}
+              onChange={(e) => { setOpenAPIUrl(e.target.value); setOpenAPIError(null); }}
+              placeholder="https://petstore.swagger.io/v2/swagger.json"
+              className="flex-1 px-3 py-2 text-sm bg-[var(--bg-input)] text-[var(--text-primary)] rounded-lg border border-[var(--border-color)] hover:border-[var(--text-muted)] focus:outline-none focus:border-violet-500 transition-colors font-mono"
+            />
+            <Button size="sm" onClick={handleOpenAPIFetch} disabled={openAPILoading || !openAPIUrl.trim()} icon={openAPILoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}>
+              {openAPILoading ? 'Fetching...' : 'Fetch'}
+            </Button>
+          </div>
+
+          <div className="flex items-center gap-2 mb-2">
+            <div className="flex-1 h-px bg-[var(--border-color)]" />
+            <span className="text-xs text-[var(--text-muted)]">or paste JSON</span>
+            <div className="flex-1 h-px bg-[var(--border-color)]" />
+          </div>
+
+          <textarea
+            value={openAPIJson}
+            onChange={(e) => { setOpenAPIJson(e.target.value); setOpenAPIError(null); }}
+            placeholder='{"openapi": "3.0.0", "info": {...}, "paths": {...}}'
+            rows={4}
+            className="w-full px-3 py-2 text-sm font-mono bg-[var(--bg-input)] text-[var(--text-primary)] rounded-lg placeholder:text-[var(--text-muted)] border border-[var(--border-color)] hover:border-[var(--text-muted)] focus:outline-none focus:border-violet-500 transition-colors mb-3 resize-y"
+            spellCheck={false}
+          />
+          <div className="flex gap-2 mb-3">
+            <Button size="sm" onClick={handleOpenAPIFetch} disabled={openAPILoading || !openAPIJson.trim()}>
+              Parse JSON
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => { setShowOpenAPI(false); setOpenAPIData(null); setOpenAPIUrl(''); setOpenAPIJson(''); setOpenAPIError(null); }}>Cancel</Button>
+          </div>
+
+          {openAPIError && <p className="text-sm text-red-600 dark:text-red-400 mb-2">{openAPIError}</p>}
+
+          {openAPILoading && (
+            <div className="flex items-center gap-2 text-sm text-[var(--text-muted)] py-4">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Fetching and parsing spec...
+            </div>
+          )}
+
+          {openAPIData && !openAPILoading && (
+            <div className="border border-[var(--border-color)] rounded-xl overflow-hidden">
+              <div className="flex items-center justify-between px-3 py-2 bg-[var(--bg-hover)] border-b border-[var(--border-color)]">
+                <span className="text-sm font-medium text-[var(--text-secondary)]">{openAPIData.title}</span>
+                <span className="text-xs text-[var(--text-muted)]">{openAPIData.operations.length} endpoints</span>
+              </div>
+
+              <div className="flex items-center gap-2 px-3 py-2 border-b border-[var(--border-color)]">
+                <button
+                  onClick={toggleOpenAPISelectAll}
+                  className="text-xs text-violet-600 dark:text-violet-400 hover:text-violet-700 dark:hover:text-violet-300 transition"
+                >
+                  {openAPISelected.size === openAPIData.operations.length ? 'Deselect all' : `Select all (${openAPIData.operations.length})`}
+                </button>
+                <span className="text-xs text-[var(--text-muted)]">
+                  {openAPISelected.size} selected
+                </span>
+                <div className="flex-1" />
+                <Button size="sm" onClick={handleOpenAPIImport} disabled={openAPISelected.size === 0} icon={<Plus className="h-3.5 w-3.5" />}>
+                  Import ({openAPISelected.size})
+                </Button>
+              </div>
+
+              <div className="max-h-64 overflow-y-auto divide-y divide-[var(--border-color)]">
+                {(() => {
+                  const grouped: Record<string, { method: string; path: string; summary: string; idx: number }[]> = {};
+                  openAPIData.operations.forEach((op, idx) => {
+                    const tag = op.tags[0] || 'General';
+                    if (!grouped[tag]) grouped[tag] = [];
+                    grouped[tag].push({ method: op.method, path: op.path, summary: op.summary, idx });
+                  });
+                  return Object.entries(grouped).map(([tag, ops]) => (
+                    <div key={tag}>
+                      <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)] bg-[var(--bg-primary)]/50">
+                        {tag}
+                      </div>
+                      {ops.map((op) => (
+                        <label
+                          key={op.idx}
+                          className="flex items-center gap-2 px-3 py-1.5 hover:bg-[var(--bg-hover)] transition cursor-pointer text-xs"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={openAPISelected.has(op.idx)}
+                            onChange={() => toggleOpenAPIOperation(op.idx)}
+                            className="rounded border-[var(--border-color)] text-violet-600 focus:ring-violet-500"
+                          />
+                          <span className={`shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded ${METHOD_COLORS[op.method] || ''}`}>
+                            {op.method}
+                          </span>
+                          <span className="font-mono text-[var(--text-secondary)] truncate flex-1">
+                            {op.path.includes('{{') ? (
+                              <>
+                                {op.path.split(/(\{\{\w+\}\})/).map((part, i) =>
+                                  part.startsWith('{{') ? <span key={i} className="text-amber-500 dark:text-amber-400">{part}</span> : part
+                                )}
+                              </>
+                            ) : op.path}
+                          </span>
+                          {op.summary && (
+                            <span className="text-[var(--text-muted)] truncate max-w-[200px] hidden sm:inline">{op.summary}</span>
+                          )}
+                          <Check className={`h-3 w-3 shrink-0 ${openAPISelected.has(op.idx) ? 'text-violet-600' : 'text-transparent'}`} />
+                        </label>
+                      ))}
+                    </div>
+                  ));
+                })()}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -417,7 +616,10 @@ function RequestCard({
         draggable
         onDragStart={onDragStart}
         onDragEnd={onDragEnd}
-        className="flex items-center gap-2.5 px-4 py-3 cursor-grab active:cursor-grabbing select-none"
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onToggle(); }}
+        className="w-full flex items-center gap-2.5 px-4 py-3 cursor-grab active:cursor-grabbing select-none hover:bg-[var(--bg-hover)] transition-colors text-left"
         onClick={onToggle}
       >
         <div className="shrink-0 flex items-center justify-center cursor-grab active:cursor-grabbing text-[var(--text-muted)] hover:text-[var(--text-secondary)]">

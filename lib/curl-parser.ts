@@ -133,20 +133,38 @@ export function parseMultipleCurlCommands(input: string): ParsedCurl[] {
   const trimmed = input.trim();
   if (!trimmed) return [];
 
-  const blocks = trimmed.split(/\n\s*\n/).filter(b => b.trim());
-  if (blocks.length === 0) return [];
+  const lines = trimmed.split('\n');
+  const groups: string[][] = [];
+  let currentGroup: string[] = [];
 
-  if (blocks.length === 1) {
-    const result = parseCurlCommand(blocks[0]);
-    if (result.error) return [];
-    return [result];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmedLine = line.trim();
+
+    if (!trimmedLine) {
+      if (currentGroup.length > 0) {
+        groups.push(currentGroup);
+        currentGroup = [];
+      }
+      continue;
+    }
+
+    if (trimmedLine.toLowerCase().startsWith('curl') && currentGroup.length > 0) {
+      groups.push(currentGroup);
+      currentGroup = [trimmedLine];
+    } else {
+      currentGroup.push(trimmedLine);
+    }
+  }
+
+  if (currentGroup.length > 0) {
+    groups.push(currentGroup);
   }
 
   const results: ParsedCurl[] = [];
-  for (const block of blocks) {
-    const singleLine = block.replace(/\\\n/g, ' ').replace(/\n/g, ' ').trim();
-    if (!singleLine) continue;
-    if (!singleLine.toLowerCase().includes('curl')) continue;
+  for (const group of groups) {
+    const singleLine = group.join(' ').replace(/\\\s+/g, '').trim();
+    if (!singleLine || !singleLine.toLowerCase().includes('curl')) continue;
     const result = parseCurlCommand(singleLine);
     if (!result.error && result.url) {
       results.push(result);
