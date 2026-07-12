@@ -10,8 +10,14 @@ import Textarea from '@/components/ui/Textarea';
 import Toggle from '@/components/ui/Toggle';
 import Button from '@/components/ui/Button';
 
+export interface CustomCheck {
+  name: string;
+  condition: string;
+}
+
 interface K6ConfigProps {
   options: { vus: number; duration: string; stages?: string; thresholds?: string };
+  checks?: CustomCheck[];
   envVars: Record<string, string>;
   args: string;
   output: string;
@@ -28,7 +34,7 @@ interface K6ConfigProps {
 }
 
 export default function K6Config({
-  options, envVars, args, output,
+  options, checks = [], envVars, args, output,
   useDashboard = true, dashboardPort = 5665, restAPIPort = 6565, useRestAPI = true,
   useInfluxDB = false, influxDBURL = '', influxDBUser = '', influxDBPass = '',
   runnerTag = '', onChange,
@@ -37,6 +43,9 @@ export default function K6Config({
   const [newEnvValue, setNewEnvValue] = useState('');
   const [useStages, setUseStages] = useState(!!options.stages);
   const [useThresholds, setUseThresholds] = useState(!!options.thresholds);
+  const [useChecks, setUseChecks] = useState(checks.length > 0);
+  const [newCheckName, setNewCheckName] = useState('');
+  const [newCheckCondition, setNewCheckCondition] = useState('');
   const [tagHint, setTagHint] = useState(false);
   const tagHintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -63,6 +72,18 @@ export default function K6Config({
 
   const removeEnv = (key: string) => {
     const env = { ...envVars }; delete env[key]; onChange({ envVars: env });
+  };
+
+  const addCheck = () => {
+    if (newCheckName.trim() && newCheckCondition.trim()) {
+      onChange({ checks: [...checks, { name: newCheckName.trim(), condition: newCheckCondition.trim() }] });
+      setNewCheckName('');
+      setNewCheckCondition('');
+    }
+  };
+
+  const removeCheck = (index: number) => {
+    onChange({ checks: checks.filter((_, i) => i !== index) });
   };
 
   const outputOptions = [{ value: 'text', label: 'Text' }, { value: 'json', label: 'JSON' }];
@@ -310,6 +331,93 @@ export default function K6Config({
                   placeholder='{"http_req_duration":["p(95)<500"],"http_req_failed":["rate<0.01"]}'
                   rows={3}
                 />
+              )}
+            </div>
+
+            {/* Custom Checks */}
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-sm font-medium text-[var(--text-secondary)]">
+                  Custom Checks
+                </label>
+                <button
+                  onClick={() => {
+                    setUseChecks(!useChecks);
+                    if (useChecks) onChange({ checks: [] });
+                  }}
+                  className="inline-flex items-center gap-1 text-[10px] px-2.5 py-1 border border-[var(--border-color)] rounded-md font-medium transition-colors"
+                  style={{ background: 'var(--token-bg)', color: 'var(--token-fg)' }}
+                >
+                  {useChecks ? 'Disable' : 'Enable'}
+                </button>
+              </div>
+              {useChecks && (
+                <div className="space-y-2">
+                  <p className="text-[10px] text-[var(--text-muted)]">
+                    Add custom k6 checks. The condition is a JS arrow function receiving the response <code className="bg-[var(--bg-hover)] px-1 rounded">r</code>.
+                  </p>
+                  {checks.map((check, i) => (
+                    <div key={i} className="flex gap-2 items-start">
+                      <div className="flex-1">
+                        <input
+                          type="text"
+                          value={check.name}
+                          onChange={(e) => {
+                            const next = [...checks];
+                            next[i] = { ...next[i], name: e.target.value };
+                            onChange({ checks: next });
+                          }}
+                          placeholder="Check name"
+                          className="w-full px-3 py-1.5 bg-[var(--bg-input)] text-[var(--text-primary)] border border-[var(--border-color)] rounded-lg text-sm font-mono focus:outline-none focus:border-violet-500 transition-colors"
+                        />
+                      </div>
+                      <div className="flex-[2]">
+                        <input
+                          type="text"
+                          value={check.condition}
+                          onChange={(e) => {
+                            const next = [...checks];
+                            next[i] = { ...next[i], condition: e.target.value };
+                            onChange({ checks: next });
+                          }}
+                          placeholder="(r) => r.status === 200"
+                          className="w-full px-3 py-1.5 bg-[var(--bg-input)] text-[var(--text-primary)] border border-[var(--border-color)] rounded-lg text-sm font-mono focus:outline-none focus:border-violet-500 transition-colors"
+                        />
+                      </div>
+                      <button
+                        onClick={() => removeCheck(i)}
+                        className="p-1.5 text-[var(--text-muted)] hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/50 rounded-lg transition-colors shrink-0"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ))}
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={newCheckName}
+                      onChange={(e) => setNewCheckName(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') addCheck(); }}
+                      placeholder="Check name"
+                      className="flex-1 px-3 py-1.5 bg-[var(--bg-input)] text-[var(--text-primary)] border border-[var(--border-color)] rounded-lg text-sm font-mono focus:outline-none focus:border-violet-500 transition-colors"
+                    />
+                    <input
+                      type="text"
+                      value={newCheckCondition}
+                      onChange={(e) => setNewCheckCondition(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') addCheck(); }}
+                      placeholder="(r) => r.status === 200"
+                      className="flex-[2] px-3 py-1.5 bg-[var(--bg-input)] text-[var(--text-primary)] border border-[var(--border-color)] rounded-lg text-sm font-mono focus:outline-none focus:border-violet-500 transition-colors"
+                    />
+                    <button
+                      onClick={addCheck}
+                      disabled={!newCheckName.trim() || !newCheckCondition.trim()}
+                      className="p-1.5 bg-violet-600 text-white rounded-lg hover:bg-violet-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                    >
+                      <Plus className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
               )}
             </div>
 
