@@ -1,8 +1,9 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Rocket, Play, Square, RotateCcw, LayoutDashboard, X, Clock, Activity, Trash2, ExternalLink } from 'lucide-react';
-import RequestForm from '@/components/RequestForm';
+import { Rocket, Play, Square, RotateCcw, LayoutDashboard, X, Clock, Activity, Trash2, ExternalLink, ChevronDown } from 'lucide-react';
+import { v4 as uuidv4 } from 'uuid';
+import RequestForm, { RequestConfig } from '@/components/RequestForm';
 import K6Config from '@/components/K6Config';
 import TestProgress from '@/components/TestProgress';
 import TestResults from '@/components/TestResults';
@@ -18,12 +19,14 @@ interface TestConfig {
     headers: Record<string, string>;
     body: string;
   };
+  requests?: RequestConfig[];
   options: {
     vus: number;
     duration: string;
     stages?: string;
     thresholds?: string;
   };
+  checks?: { name: string; condition: string }[];
   env: Record<string, string>;
   args: string;
   output: string;
@@ -48,6 +51,13 @@ export default function Home() {
       headers: { 'Content-Type': 'application/json' },
       body: '',
     },
+    requests: [{
+      id: 'default-request',
+      method: 'GET',
+      url: 'https://httpbin.io/get',
+      headers: { 'Content-Type': 'application/json' },
+      body: '',
+    }],
     options: {
       vus: 1,
       duration: '10s',
@@ -86,6 +96,7 @@ export default function Home() {
   const [elapsedTime, setElapsedTime] = useState<string>('0s');
   const [remainingTime, setRemainingTime] = useState<string>('0s');
   const [totalTime, setTotalTime] = useState<string>('0s');
+  const [expandedTests, setExpandedTests] = useState<Set<string>>(new Set());
 
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const isMounted = useRef(true);
@@ -406,9 +417,20 @@ export default function Home() {
 
         {/* Config Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-          <RequestForm request={testConfig.request} onChange={(request) => setTestConfig({ ...testConfig, request })} />
+          <RequestForm
+            requests={testConfig.requests || [testConfig.request as any]}
+            onChange={(requests) => {
+              const first = requests[0];
+              setTestConfig({
+                ...testConfig,
+                requests,
+                request: first ? { method: first.method, url: first.url, headers: first.headers, body: first.body } : testConfig.request,
+              });
+            }}
+          />
           <K6Config
             options={testConfig.options}
+            checks={testConfig.checks}
             envVars={testConfig.env}
             args={testConfig.args}
             output={testConfig.output}
@@ -532,7 +554,7 @@ export default function Home() {
                 <thead>
                   <tr className="border-b border-[var(--border-color)] bg-[var(--bg-hover)]/50">
                     <th className="text-left py-2.5 px-4 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider">ID</th>
-                    <th className="text-left py-2.5 px-4 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider">URL</th>
+                    <th className="text-left py-2.5 px-4 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider">Requests</th>
                     <th className="text-left py-2.5 px-4 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider">Progress</th>
                     <th className="text-left py-2.5 px-4 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider">Status</th>
                     <th className="text-left py-2.5 px-4 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider">Elapsed</th>
@@ -544,7 +566,61 @@ export default function Home() {
                   {tests.slice(0, 10).map((test) => (
                     <tr key={test.id} className="hover:bg-[var(--bg-hover)]/50 transition-colors">
                       <td className="py-2.5 px-4 font-mono text-xs text-[var(--text-muted)]">{test.id.substring(0, 8)}</td>
-                      <td className="py-2.5 px-4 text-[var(--text-secondary)] truncate max-w-[200px]">{test.config}</td>
+                      <td className="py-2.5 px-4 max-w-[250px]">
+                        {(() => {
+                          const cfg = test.fullConfig;
+                          const requests: any[] = cfg?.requests?.length > 0
+                            ? cfg.requests
+                            : cfg?.request
+                              ? [cfg.request]
+                              : [];
+                          if (requests.length === 0) return <span className="text-[var(--text-muted)] text-xs">{typeof test.config === 'string' ? test.config : '-'}</span>;
+                          const methodColors: Record<string, string> = {
+                            GET: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-400',
+                            POST: 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-400',
+                            PUT: 'bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-400',
+                            PATCH: 'bg-orange-100 text-orange-700 dark:bg-orange-900/50 dark:text-orange-400',
+                            DELETE: 'bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-400',
+                          };
+                          const expanded = expandedTests.has(test.id);
+                          return (
+                            <div>
+                              <button
+                                onClick={() => {
+                                  setExpandedTests(prev => {
+                                    const next = new Set(prev);
+                                    if (next.has(test.id)) next.delete(test.id);
+                                    else next.add(test.id);
+                                    return next;
+                                  });
+                                }}
+                                className="flex items-center gap-1.5 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition cursor-pointer group w-full text-left"
+                              >
+                                <ChevronDown className={`h-3 w-3 text-[var(--text-muted)] transition-transform ${expanded ? 'rotate-180' : ''}`} />
+                                <span className="font-medium">{requests.length} request{requests.length > 1 ? 's' : ''}</span>
+                                <span className="text-[var(--text-muted)] truncate">{requests[0]?.method?.toUpperCase() || 'GET'} {requests[0]?.url || ''}</span>
+                              </button>
+                              {expanded && (
+                                <div className="mt-1.5 pl-1.5 border-l-2 border-[var(--border-color)] ml-1 space-y-1">
+                                  {requests.map((req: any, idx: number) => {
+                                    const method = req.method?.toUpperCase() || 'GET';
+                                    const colorClass = methodColors[method] || 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-400';
+                                    return (
+                                      <div key={idx} className="flex items-center gap-1.5 min-w-0">
+                                        <span className="text-[10px] font-mono font-bold text-[var(--text-muted)] shrink-0">{idx + 1}.</span>
+                                        <span className={`text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded shrink-0 ${colorClass}`}>
+                                          {method}
+                                        </span>
+                                        <span className="text-xs text-[var(--text-secondary)] truncate">{req.url || '-'}</span>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
+                      </td>
                       <td className="py-2.5 px-4">
                         <div className="flex items-center gap-2">
                           <div className="w-20 h-1.5 bg-[var(--bg-hover)] rounded-full overflow-hidden">
@@ -570,7 +646,22 @@ export default function Home() {
                       <td className="py-2.5 px-4">
                         {test.status !== 'running' && test.fullConfig && (
                           <button
-                            onClick={() => { setTestConfig(test.fullConfig); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                            onClick={() => {
+                              const cfg = test.fullConfig;
+                              if (cfg?.requests && cfg.requests.length > 0) {
+                                setTestConfig(cfg);
+                              } else if (cfg?.request) {
+                                const req: RequestConfig = {
+                                  id: uuidv4(),
+                                  method: cfg.request.method,
+                                  url: cfg.request.url,
+                                  headers: cfg.request.headers,
+                                  body: cfg.request.body || '',
+                                };
+                                setTestConfig({ ...cfg, requests: [req], request: cfg.request });
+                              }
+                              window.scrollTo({ top: 0, behavior: 'smooth' });
+                            }}
                             className="flex items-center gap-1 text-xs text-violet-600 dark:text-violet-400 hover:text-violet-700 dark:hover:text-violet-300 transition px-2 py-1 rounded-lg hover:bg-violet-50 dark:hover:bg-violet-950/50"
                             title="Load this test's config and run it again"
                           >

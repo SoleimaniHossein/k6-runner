@@ -19,6 +19,9 @@
   --success: #22c55e;
   --danger: #ef4444;
   --danger-hover: #dc2626;
+  --unit-btn-bg: rgba(124,58,237,0.75);
+  --unit-btn-fg: #ffffff;
+  --unit-btn-hover: rgba(109,40,217,0.75);
 
   /* Badge & token colors */
   --badge-running-bg: #dbeafe;
@@ -43,11 +46,9 @@
   --token-bg-hover: #ddd6fe;
   --token-border-hover: #a78bfa;
 
-  /* cURL import */
-  --curl-bg: #f1f5f9;
-  --curl-border: #cbd5e1;
-  --curl-input-bg: #ffffff;
-  --curl-input-border: #e2e8f0;
+  /* Integration panels */
+  --panel-bg: #f3eefa;
+  --panel-border: #c4b5fd;
 }
 
 /* Dark theme */
@@ -69,6 +70,9 @@
   --success: #22c55e;
   --danger: #ef4444;
   --danger-hover: #dc2626;
+  --unit-btn-bg: rgba(76,29,149,0.4);
+  --unit-btn-fg: #c4b5fd;
+  --unit-btn-hover: rgba(91,33,182,0.5);
 
   /* Badge & token colors */
   --badge-running-bg: rgba(30,58,138,0.5);
@@ -93,11 +97,9 @@
   --token-bg-hover: rgba(91,33,182,0.5);
   --token-border-hover: #8b5cf6;
 
-  /* cURL import — exact original dark: Tailwind values */
-  --curl-bg: rgba(69,26,3,0.3);
-  --curl-border: #78350f;
-  --curl-input-bg: rgba(69,26,3,0.5);
-  --curl-input-border: #92400e;
+  /* Integration panels */
+  --panel-bg: #2c1a4c2e;
+  --panel-border: #7c3aed70;
 }
 
 body {
@@ -146,6 +148,17 @@ select:focus-visible {
 /* Selection */
 ::selection {
   background: rgba(124, 58, 237, 0.2);
+}
+
+select option {
+  background-color: var(--bg-card);
+  color: var(--text-primary);
+  padding: 8px 12px;
+}
+
+select option:checked {
+  background-color: #7c3aed;
+  color: #ffffff;
 }
 
 /* Animated gradient for progress */

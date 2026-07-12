@@ -1,16 +1,23 @@
 'use client';
 
-import { useState, useRef } from 'react';
-import { Settings, Users, Timer, Plus, X, ChevronDown, ChevronRight } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
+import { Settings, Users, Timer, Plus, X, ChevronDown, ChevronRight, ChevronUp } from 'lucide-react';
 import Card, { CardHeader, CardTitle } from '@/components/ui/Card';
 import Input from '@/components/ui/Input';
+import NumberInput from '@/components/ui/NumberInput';
 import Select from '@/components/ui/Select';
 import Textarea from '@/components/ui/Textarea';
 import Toggle from '@/components/ui/Toggle';
 import Button from '@/components/ui/Button';
 
+export interface CustomCheck {
+  name: string;
+  condition: string;
+}
+
 interface K6ConfigProps {
   options: { vus: number; duration: string; stages?: string; thresholds?: string };
+  checks?: CustomCheck[];
   envVars: Record<string, string>;
   args: string;
   output: string;
@@ -27,7 +34,7 @@ interface K6ConfigProps {
 }
 
 export default function K6Config({
-  options, envVars, args, output,
+  options, checks = [], envVars, args, output,
   useDashboard = true, dashboardPort = 5665, restAPIPort = 6565, useRestAPI = true,
   useInfluxDB = false, influxDBURL = '', influxDBUser = '', influxDBPass = '',
   runnerTag = '', onChange,
@@ -36,9 +43,25 @@ export default function K6Config({
   const [newEnvValue, setNewEnvValue] = useState('');
   const [useStages, setUseStages] = useState(!!options.stages);
   const [useThresholds, setUseThresholds] = useState(!!options.thresholds);
+  const [useChecks, setUseChecks] = useState(checks.length > 0);
+  const [newCheckName, setNewCheckName] = useState('');
+  const [newCheckCondition, setNewCheckCondition] = useState('');
   const [tagHint, setTagHint] = useState(false);
   const tagHintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [unitDropdownOpen, setUnitDropdownOpen] = useState(false);
+  const unitDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!unitDropdownOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (unitDropdownRef.current && !unitDropdownRef.current.contains(e.target as Node)) {
+        setUnitDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [unitDropdownOpen]);
 
   const addEnv = () => {
     if (newEnvKey && newEnvValue) {
@@ -49,6 +72,18 @@ export default function K6Config({
 
   const removeEnv = (key: string) => {
     const env = { ...envVars }; delete env[key]; onChange({ envVars: env });
+  };
+
+  const addCheck = () => {
+    if (newCheckName.trim() && newCheckCondition.trim()) {
+      onChange({ checks: [...checks, { name: newCheckName.trim(), condition: newCheckCondition.trim() }] });
+      setNewCheckName('');
+      setNewCheckCondition('');
+    }
+  };
+
+  const removeCheck = (index: number) => {
+    onChange({ checks: checks.filter((_, i) => i !== index) });
   };
 
   const outputOptions = [{ value: 'text', label: 'Text' }, { value: 'json', label: 'JSON' }];
@@ -64,21 +99,95 @@ export default function K6Config({
       <div className="space-y-4">
         {/* VUs + Duration */}
         <div className="grid grid-cols-2 gap-3">
-          <Input
+          <NumberInput
             label="Virtual Users"
-            type="number"
             value={options.vus}
-            onChange={(e) => onChange({ options: { ...options, vus: parseInt(e.target.value) || 1 } })}
-            min="1"
+            onChange={(v) => onChange({ options: { ...options, vus: v } })}
+            min={1}
             icon={<Users className="h-4 w-4 text-[var(--text-muted)]" />}
           />
-          <Input
-            label="Duration"
-            value={options.duration}
-            onChange={(e) => onChange({ options: { ...options, duration: e.target.value } })}
-            placeholder="30s, 1m, 2h"
-            icon={<Timer className="h-4 w-4 text-[var(--text-muted)]" />}
-          />
+          <div>
+            <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1.5">Duration</label>
+            <div className="flex items-center border border-[var(--border-color)] rounded-lg transition-colors focus-within:border-violet-500 focus-within:ring-1 focus-within:ring-violet-500/20 bg-[var(--bg-input)]">
+              <div className="flex items-center justify-center w-10 h-full shrink-0 rounded-l-lg">
+                <Timer className="h-4 w-4 text-[var(--text-muted)]" />
+              </div>
+              {(() => {
+                const match = options.duration.match(/^(\d+)(ms|s|m|h)$/);
+                const num = match ? parseInt(match[1]) : 30;
+                const unit = match ? match[2] : 's';
+                const units = ['ms', 's', 'm', 'h'] as const;
+                return (
+                  <>
+                    <div className="relative flex-1 min-w-0 group">
+                      <input
+                        type="number"
+                        min="1"
+                        value={num}
+                        onChange={(e) => {
+                          const v = parseInt(e.target.value) || 1;
+                          onChange({ options: { ...options, duration: `${v}${unit}` } });
+                        }}
+                        className="w-full px-2.5 py-2 pr-8 bg-[var(--bg-input)] text-[var(--text-primary)] text-sm font-mono focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                      />
+                      <div className="absolute right-0 top-0 h-full flex flex-col border-l border-[var(--border-color)] opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+                        <button
+                          type="button"
+                          onClick={() => onChange({ options: { ...options, duration: `${Math.max(1, num + 1)}${unit}` } })}
+                          className="flex-1 flex items-center justify-center w-5 hover:bg-[var(--bg-hover)] transition-colors text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                          tabIndex={-1}
+                        >
+                          <ChevronUp className="h-2.5 w-2.5" />
+                        </button>
+                        <div className="h-px bg-[var(--border-color)]" />
+                        <button
+                          type="button"
+                          onClick={() => onChange({ options: { ...options, duration: `${Math.max(1, num - 1)}${unit}` } })}
+                          className="flex-1 flex items-center justify-center w-5 hover:bg-[var(--bg-hover)] transition-colors text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                          tabIndex={-1}
+                        >
+                          <ChevronDown className="h-2.5 w-2.5" />
+                        </button>
+                      </div>
+                    </div>
+                    <div className="h-6 w-px bg-[var(--border-color)]" />
+                    <div className="relative" ref={unitDropdownRef}>
+                      <button
+                        type="button"
+                        onClick={() => setUnitDropdownOpen(!unitDropdownOpen)}
+                        className="h-full px-2.5 py-2 pr-7 text-sm font-semibold focus:outline-none cursor-pointer transition-colors rounded-r-lg"
+                        style={{ backgroundColor: 'rgba(124,58,237,0.75)', color: '#ffffff' }}
+                      >
+                        {unit}
+                      </button>
+                      <ChevronDown className="absolute right-1.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-white/60 pointer-events-none" />
+                      {unitDropdownOpen && (
+                        <div className="absolute right-0 top-full mt-1 z-50 bg-[var(--bg-card)] rounded-lg shadow-lg border border-[var(--border-color)] overflow-hidden min-w-[60px]">
+                          {units.map((u) => (
+                            <button
+                              key={u}
+                              type="button"
+                              onClick={() => {
+                                onChange({ options: { ...options, duration: `${num}${u}` } });
+                                setUnitDropdownOpen(false);
+                              }}
+                              className={`block w-full text-left px-3 py-1.5 text-sm font-medium transition-colors ${
+                                u === unit
+                                  ? 'bg-violet-600 text-white'
+                                  : 'text-[var(--text-primary)] hover:bg-violet-50 dark:hover:bg-violet-950/40'
+                              }`}
+                            >
+                              {u}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+          </div>
         </div>
 
         {/* Runner Tag */}
@@ -102,7 +211,7 @@ export default function K6Config({
 
         {/* Integrations */}
         <div className="space-y-3 pt-2">
-          <div className="p-3 bg-[var(--bg-hover)] rounded-xl space-y-3">
+          <div className="p-3 border rounded-xl space-y-3" style={{ background: 'var(--panel-bg)', borderColor: 'var(--panel-border)' }}>
             <Toggle
               checked={!!useDashboard}
               onChange={() => onChange({ useDashboard: !useDashboard })}
@@ -111,18 +220,17 @@ export default function K6Config({
               activeColor="bg-violet-600"
             />
             {useDashboard && (
-              <Input
+              <NumberInput
                 label="Dashboard Port"
-                type="number"
                 value={dashboardPort}
-                onChange={(e) => onChange({ dashboardPort: parseInt(e.target.value) || 5665 })}
-                min="1024"
-                max="65535"
+                onChange={(v) => onChange({ dashboardPort: v })}
+                min={1024}
+                max={65535}
               />
             )}
           </div>
 
-          <div className="p-3 bg-[var(--bg-hover)] rounded-xl space-y-3">
+          <div className="p-3 border rounded-xl space-y-3" style={{ background: 'var(--panel-bg)', borderColor: 'var(--panel-border)' }}>
             <Toggle
               checked={!!useRestAPI}
               onChange={() => onChange({ useRestAPI: !useRestAPI })}
@@ -132,20 +240,19 @@ export default function K6Config({
             />
             {useRestAPI && (
               <div className="space-y-1.5">
-                <Input
+                <NumberInput
                   label="REST API Port"
-                  type="number"
                   value={restAPIPort}
-                  onChange={(e) => onChange({ restAPIPort: parseInt(e.target.value) || 6565 })}
-                  min="1024"
-                  max="65535"
+                  onChange={(v) => onChange({ restAPIPort: v })}
+                  min={1024}
+                  max={65535}
                 />
                 <p className="text-[10px] text-[var(--text-muted)] font-mono">localhost:{restAPIPort}/v1/status</p>
               </div>
             )}
           </div>
 
-          <div className="p-3 bg-[var(--bg-hover)] rounded-xl space-y-3">
+          <div className="p-3 border rounded-xl space-y-3" style={{ background: 'var(--panel-bg)', borderColor: 'var(--panel-border)' }}>
             <Toggle
               checked={!!useInfluxDB}
               onChange={() => onChange({ useInfluxDB: !useInfluxDB })}
@@ -187,9 +294,13 @@ export default function K6Config({
             <div>
               <div className="flex items-center justify-between mb-1.5">
                 <label className="text-sm font-medium text-[var(--text-secondary)]">Stages</label>
-                <Button variant="ghost" size="sm" onClick={() => setUseStages(!useStages)}>
+                <button
+                  onClick={() => setUseStages(!useStages)}
+                  className="inline-flex items-center gap-1 text-[10px] px-2.5 py-1 border border-[var(--border-color)] rounded-md font-medium transition-colors"
+                  style={{ background: 'var(--token-bg)', color: 'var(--token-fg)' }}
+                >
                   {useStages ? 'Disable' : 'Enable'}
-                </Button>
+                </button>
               </div>
               {useStages && (
                 <Textarea
@@ -205,9 +316,13 @@ export default function K6Config({
             <div>
               <div className="flex items-center justify-between mb-1.5">
                 <label className="text-sm font-medium text-[var(--text-secondary)]">Thresholds</label>
-                <Button variant="ghost" size="sm" onClick={() => setUseThresholds(!useThresholds)}>
+                <button
+                  onClick={() => setUseThresholds(!useThresholds)}
+                  className="inline-flex items-center gap-1 text-[10px] px-2.5 py-1 border border-[var(--border-color)] rounded-md font-medium transition-colors"
+                  style={{ background: 'var(--token-bg)', color: 'var(--token-fg)' }}
+                >
                   {useThresholds ? 'Disable' : 'Enable'}
-                </Button>
+                </button>
               </div>
               {useThresholds && (
                 <Textarea
@@ -216,6 +331,93 @@ export default function K6Config({
                   placeholder='{"http_req_duration":["p(95)<500"],"http_req_failed":["rate<0.01"]}'
                   rows={3}
                 />
+              )}
+            </div>
+
+            {/* Custom Checks */}
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-sm font-medium text-[var(--text-secondary)]">
+                  Custom Checks
+                </label>
+                <button
+                  onClick={() => {
+                    setUseChecks(!useChecks);
+                    if (useChecks) onChange({ checks: [] });
+                  }}
+                  className="inline-flex items-center gap-1 text-[10px] px-2.5 py-1 border border-[var(--border-color)] rounded-md font-medium transition-colors"
+                  style={{ background: 'var(--token-bg)', color: 'var(--token-fg)' }}
+                >
+                  {useChecks ? 'Disable' : 'Enable'}
+                </button>
+              </div>
+              {useChecks && (
+                <div className="space-y-2">
+                  <p className="text-[10px] text-[var(--text-muted)]">
+                    Add custom k6 checks. The condition is a JS arrow function receiving the response <code className="bg-[var(--bg-hover)] px-1 rounded">r</code>.
+                  </p>
+                  {checks.map((check, i) => (
+                    <div key={i} className="flex gap-2 items-start">
+                      <div className="flex-1">
+                        <input
+                          type="text"
+                          value={check.name}
+                          onChange={(e) => {
+                            const next = [...checks];
+                            next[i] = { ...next[i], name: e.target.value };
+                            onChange({ checks: next });
+                          }}
+                          placeholder="Check name"
+                          className="w-full px-3 py-1.5 bg-[var(--bg-input)] text-[var(--text-primary)] border border-[var(--border-color)] rounded-lg text-sm font-mono focus:outline-none focus:border-violet-500 transition-colors"
+                        />
+                      </div>
+                      <div className="flex-[2]">
+                        <input
+                          type="text"
+                          value={check.condition}
+                          onChange={(e) => {
+                            const next = [...checks];
+                            next[i] = { ...next[i], condition: e.target.value };
+                            onChange({ checks: next });
+                          }}
+                          placeholder="(r) => r.status === 200"
+                          className="w-full px-3 py-1.5 bg-[var(--bg-input)] text-[var(--text-primary)] border border-[var(--border-color)] rounded-lg text-sm font-mono focus:outline-none focus:border-violet-500 transition-colors"
+                        />
+                      </div>
+                      <button
+                        onClick={() => removeCheck(i)}
+                        className="p-1.5 text-[var(--text-muted)] hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/50 rounded-lg transition-colors shrink-0"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ))}
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={newCheckName}
+                      onChange={(e) => setNewCheckName(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') addCheck(); }}
+                      placeholder="Check name"
+                      className="flex-1 px-3 py-1.5 bg-[var(--bg-input)] text-[var(--text-primary)] border border-[var(--border-color)] rounded-lg text-sm font-mono focus:outline-none focus:border-violet-500 transition-colors"
+                    />
+                    <input
+                      type="text"
+                      value={newCheckCondition}
+                      onChange={(e) => setNewCheckCondition(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') addCheck(); }}
+                      placeholder="(r) => r.status === 200"
+                      className="flex-[2] px-3 py-1.5 bg-[var(--bg-input)] text-[var(--text-primary)] border border-[var(--border-color)] rounded-lg text-sm font-mono focus:outline-none focus:border-violet-500 transition-colors"
+                    />
+                    <button
+                      onClick={addCheck}
+                      disabled={!newCheckName.trim() || !newCheckCondition.trim()}
+                      className="p-1.5 bg-violet-600 text-white rounded-lg hover:bg-violet-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                    >
+                      <Plus className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
               )}
             </div>
 

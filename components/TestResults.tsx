@@ -74,14 +74,58 @@ export default function TestResults({ results }: TestResultsProps) {
         <div className="mb-6">
           <h3 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-3">Performance Metrics</h3>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-            {Object.entries(results.metrics).map(([key, value]: [string, any]) => (
-              <div key={key} className="p-2.5 bg-[var(--bg-hover)] rounded-lg">
-                <div className="text-[10px] text-[var(--text-muted)] truncate">{key}</div>
-                <div className="text-sm font-semibold text-[var(--text-primary)] tabular-nums">
-                  {typeof value === 'number' ? value.toFixed(2) : String(value)}
+            {Object.entries(results.metrics).map(([key, value]: [string, any]) => {
+                  const isFailed = key === 'http_req_failed';
+                  const isChecks = key === 'checks';
+                  let displayValue: string;
+                  let colorClass = 'text-[var(--text-primary)]';
+                  if (isFailed && typeof value === 'number') {
+                    displayValue = `${value.toFixed(2)}%`;
+                    colorClass = value > 1 ? 'text-red-500' : value > 0.1 ? 'text-amber-500' : 'text-emerald-500';
+                  } else if (isChecks && typeof value === 'number') {
+                    const pct = value * 100;
+                    displayValue = `${pct.toFixed(1)}%`;
+                    colorClass = 'text-emerald-500';
+                  } else {
+                    displayValue = typeof value === 'number' ? value.toFixed(2) : String(value);
+                  }
+                  return (
+                    <div key={key} className="p-2.5 bg-[var(--bg-hover)] rounded-lg">
+                      <div className="text-[10px] text-[var(--text-muted)] truncate">{key}</div>
+                      <div className={`text-sm font-semibold tabular-nums ${colorClass}`}>{displayValue}</div>
+                    </div>
+                  );
+                })}
+          </div>
+        </div>
+      )}
+
+      {/* Checks */}
+      {results.checks && Object.keys(results.checks).length > 0 && (
+        <div className="mb-6">
+          <h3 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-3">Checks</h3>
+          <div className="border border-[var(--border-color)] rounded-xl overflow-hidden">
+            {Object.values(results.checks).map((check: any) => {
+              const total = check.passes + check.fails;
+              const passed = check.fails === 0;
+              return (
+                <div key={check.name} className="flex items-center justify-between px-4 py-2.5 border-b border-[var(--border-color)] last:border-b-0">
+                  <div className="flex items-center gap-2.5">
+                    {passed ? (
+                      <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
+                    ) : (
+                      <XCircle className="h-4 w-4 text-red-500 shrink-0" />
+                    )}
+                    <span className="text-sm text-[var(--text-primary)]">{check.name}</span>
+                  </div>
+                  <div className="flex items-center gap-3 text-xs tabular-nums">
+                    <span className="text-emerald-500">{check.passes} passed</span>
+                    {check.fails > 0 && <span className="text-red-500">{check.fails} failed</span>}
+                    <span className="text-[var(--text-muted)]">{total} total</span>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
